@@ -5,7 +5,12 @@ import { requireAuthContext } from "../../../../lib/auth-context";
 
 const MAX_IMAGES = 9;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-const ALLOWED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/heic"];
+const ALLOWED_TYPES = [
+  "image/jpeg", "image/jpg", "image/png", "image/webp", "image/heic",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+];
 const BUCKET = "case-images";
 
 function inferSensitiveHint(fileName: string) {
@@ -69,7 +74,7 @@ export async function POST(request: Request) {
     const existingCount = await prisma.caseImage.count({ where: { caseId } });
     if (existingCount + files.length > MAX_IMAGES) {
       return NextResponse.json(
-        { error: `Maximum ${MAX_IMAGES} images allowed. Currently has ${existingCount}.` },
+        { error: `最多允许 ${MAX_IMAGES} 个附件，当前已有 ${existingCount} 个。` },
         { status: 400 },
       );
     }
@@ -78,13 +83,13 @@ export async function POST(request: Request) {
     for (const file of files) {
       if (!ALLOWED_TYPES.includes(file.type)) {
         return NextResponse.json(
-          { error: `Invalid file type: ${file.type}. Allowed: JPEG, PNG, WEBP, HEIC.` },
+          { error: `不支持的附件类型: ${file.type}。支持: JPEG, PNG, WEBP, HEIC, PDF, DOC, DOCX。` },
           { status: 400 },
         );
       }
       if (file.size > MAX_FILE_SIZE) {
         return NextResponse.json(
-          { error: `File "${file.name}" exceeds 10MB limit.` },
+          { error: `附件 "${file.name}" 超过 10MB 大小限制。` },
           { status: 400 },
         );
       }

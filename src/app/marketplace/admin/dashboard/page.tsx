@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { NavBar } from "@/components/ui/nav-bar";
@@ -52,6 +52,10 @@ type DashboardResponse = {
 };
 
 export default function AdminDashboardPage() {
+  return (<Suspense fallback={<div className="p-8 text-center text-sm text-slate-500">加载中...</div>}><AdminDashboardInner /></Suspense>);
+}
+
+function AdminDashboardInner() {
   const { viewer, loading: authLoading } = useMarketplaceAuth();
   const router = useRouter();
   const pathname = usePathname();

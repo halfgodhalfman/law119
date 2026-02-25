@@ -19,6 +19,9 @@ type PaymentDetail = {
     amountRefunded: string;
     holdBlockedByDispute: boolean;
     holdBlockedReason: string | null;
+    refundReviewStatus: string | null;
+    refundReason: string | null;
+    refundDescription: string | null;
     caseId: string | null;
     conversationId: string | null;
     milestones: Array<{
@@ -140,7 +143,7 @@ export default function PaymentOrderDetailPage() {
           {data && (
             <div className="grid gap-5 lg:grid-cols-[1.5fr_1fr]">
               <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="mb-3 flex flex-wrap gap-2">
+                <div className="mb-3 flex flex-wrap items-center gap-2">
                   <span className="rounded-full bg-slate-100 px-2 py-1 text-xs">{data.paymentOrder.status}</span>
                   {data.paymentOrder.holdBlockedByDispute && (
                     <span className="rounded-full bg-rose-100 px-2 py-1 text-xs text-rose-700">争议阻断</span>
@@ -148,6 +151,7 @@ export default function PaymentOrderDetailPage() {
                   <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs text-emerald-700">
                     角色：{data.viewer.role}
                   </span>
+                  <Link href={`/marketplace/payments/${paymentOrderId}/receipt`} target="_blank" className="text-sm text-blue-600 hover:underline">打印收据</Link>
                 </div>
                 <h2 className="text-lg font-semibold text-slate-900">{data.paymentOrder.title}</h2>
                 <p className="mt-2 text-sm text-slate-600">
@@ -232,15 +236,22 @@ export default function PaymentOrderDetailPage() {
                       >
                         标记已支付并托管（测试）
                       </button>
-                      <button
-                        type="button"
-                        disabled={acting === "refund_request:"}
-                        onClick={() => void act("refund_request")}
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs"
-                      >
-                        发起退款申请
-                      </button>
+                      {["PAID_HELD", "PARTIALLY_RELEASED"].includes(data.paymentOrder.status) && (
+                        <Link
+                          href={`/marketplace/payments/${paymentOrderId}/refund`}
+                          className="block w-full rounded-lg border border-slate-300 px-3 py-2 text-center text-xs hover:bg-slate-50"
+                        >
+                          发起退款申请
+                        </Link>
+                      )}
                     </>
+                  )}
+                  {data.paymentOrder.refundReviewStatus && data.paymentOrder.refundReviewStatus !== "NONE" && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                      <p className="font-medium">退款审核状态：{data.paymentOrder.refundReviewStatus}</p>
+                      {data.paymentOrder.refundReason && <p className="mt-1">退款原因：{data.paymentOrder.refundReason}</p>}
+                      {data.paymentOrder.refundDescription && <p className="mt-1">退款说明：{data.paymentOrder.refundDescription}</p>}
+                    </div>
                   )}
                 </div>
                 <h4 className="mt-5 text-sm font-semibold text-slate-900">事件记录</h4>

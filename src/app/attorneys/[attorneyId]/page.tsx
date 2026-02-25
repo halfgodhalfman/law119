@@ -222,6 +222,9 @@ export default async function AttorneyPublicProfilePage({ params }: Params) {
                   <p className="text-sm text-slate-500">暂无公开客户评价。</p>
                 )}
               </div>
+              <div className="mt-4 text-center">
+                <Link href={`/attorneys/${attorney.id}/reviews`} className="text-sm text-blue-600 hover:underline">查看全部评价</Link>
+              </div>
             </section>
 
             <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

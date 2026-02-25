@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { NavBar } from "@/components/ui/nav-bar";
@@ -18,6 +18,10 @@ type NotificationItem = {
 };
 
 export default function NotificationsPage() {
+  return (<Suspense fallback={<div className="p-8 text-center text-sm text-slate-500">加载中...</div>}><NotificationsInner /></Suspense>);
+}
+
+function NotificationsInner() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();

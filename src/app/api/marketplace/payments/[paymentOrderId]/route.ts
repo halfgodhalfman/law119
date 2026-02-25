@@ -25,6 +25,8 @@ const actionSchema = z.object({
   note: z.string().trim().max(1000).optional(),
   holdReasonCode: z.enum(["DISPUTE_BLOCK", "FRAUD_REVIEW", "COMPLIANCE_REVIEW", "DOCUMENT_MISSING", "MANUAL_HOLD", "OTHER"]).optional(),
   reconciliationStatus: z.enum(["UNRECONCILED", "MATCHED", "MANUAL_REVIEW", "MISMATCH", "RECONCILED"]).optional(),
+  refundReason: z.enum(["SERVICE_NOT_STARTED", "SERVICE_INCOMPLETE", "QUALITY_ISSUE", "COMMUNICATION_ISSUE", "OVERCHARGED", "OTHER"]).optional(),
+  refundDescription: z.string().trim().max(2000).optional(),
 });
 
 async function hasBlockingDispute(order: { conversationId: string | null; caseId: string | null; bidId: string | null }) {
@@ -214,6 +216,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ pay
         updates.refundReviewStatus = "PENDING_REVIEW";
         updates.refundRequestedAt = now;
         updates.refundReviewNote = note ?? null;
+        updates.refundReason = parsed.data.refundReason || null;
+        updates.refundDescription = parsed.data.refundDescription || null;
         eventType = "REFUND_REQUESTED";
       } else if (action === "refund_approve") {
         if (!isAdmin) throw new Error("ADMIN_ONLY");

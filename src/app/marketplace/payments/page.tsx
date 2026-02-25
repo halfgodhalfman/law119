@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { NavBar } from "@/components/ui/nav-bar";
@@ -21,6 +21,10 @@ type PaymentOrder = {
 };
 
 export default function MarketplacePaymentsPage() {
+  return (<Suspense fallback={<div className="p-8 text-center text-sm text-slate-500">加载中...</div>}><MarketplacePaymentsInner /></Suspense>);
+}
+
+function MarketplacePaymentsInner() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
