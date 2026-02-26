@@ -31,8 +31,12 @@ export async function GET(request: Request) {
     const zipPrefix = searchParams.get("zipPrefix");
     const urgency = searchParams.get("urgency");
     const feeMode = searchParams.get("feeMode");
-    const budgetMin = Number(searchParams.get("budgetMin") ?? "");
-    const budgetMax = Number(searchParams.get("budgetMax") ?? "");
+    // Use NaN when param is absent/empty so Number.isFinite() skips the filter.
+    // Previously Number("") === 0 which caused budgetMax<=0 to filter out all cases.
+    const budgetMinParam = searchParams.get("budgetMin");
+    const budgetMaxParam = searchParams.get("budgetMax");
+    const budgetMin = budgetMinParam !== null && budgetMinParam !== "" ? Number(budgetMinParam) : NaN;
+    const budgetMax = budgetMaxParam !== null && budgetMaxParam !== "" ? Number(budgetMaxParam) : NaN;
     const mineBidOnly = searchParams.get("mineBidOnly") === "1";
     const deadlineWindow = searchParams.get("deadlineWindow"); // 24h / 7d / overdue
     const recommendationReasonsRaw = searchParams.get("recommendationReasons")?.trim();

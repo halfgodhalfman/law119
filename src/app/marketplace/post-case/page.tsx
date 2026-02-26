@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { NavBar } from "@/components/ui/nav-bar";
 import { useMarketplaceAuth } from "@/lib/use-marketplace-auth";
@@ -71,6 +72,7 @@ const STEPS = [
 ] as const;
 
 export default function MarketplacePostCasePage() {
+  const router = useRouter();
   const { viewer, loading: authLoading } = useMarketplaceAuth();
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<CreateCaseResponse | null>(null);
@@ -239,9 +241,10 @@ export default function MarketplacePostCasePage() {
 
       const data = (await response.json()) as CreateCaseResponse;
       setResult(data);
-      if (response.ok) {
+      if (response.ok && data.case?.id) {
         localStorage.removeItem(DRAFT_KEY);
-        flashDraftMsg("发布成功，已清除本地草稿");
+        // Redirect to case detail so user sees the published case and cannot re-submit
+        router.push(`/marketplace/cases/${data.case.id}`);
       }
     } catch {
       setResult({ error: "Network error" });

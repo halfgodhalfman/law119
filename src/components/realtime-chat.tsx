@@ -467,6 +467,8 @@ export function RealtimeChat({ conversationId, viewerRole }: Props) {
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
+    let realtimeConnected = false;
+
     const channel = supabase
       .channel(`conversation:${conversationId}`)
       .on(
@@ -478,6 +480,7 @@ export function RealtimeChat({ conversationId, viewerRole }: Props) {
           filter: `conversationId=eq.${conversationId}`,
         },
         (event) => {
+          realtimeConnected = true;
           const row = event.new as Message;
           setPayload((prev) => {
             if (!prev) return prev;
@@ -486,9 +489,20 @@ export function RealtimeChat({ conversationId, viewerRole }: Props) {
           });
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") realtimeConnected = true;
+      });
+
+    // Polling fallback: refresh every 5s when Realtime is unavailable
+    // (e.g. local dev without ChatMessage table in Supabase publication).
+    const pollInterval = setInterval(() => {
+      if (!realtimeConnected) {
+        void loadMessages();
+      }
+    }, 5000);
 
     return () => {
+      clearInterval(pollInterval);
       void supabase.removeChannel(channel);
     };
   }, [conversationId]);
@@ -628,6 +642,8 @@ export function RealtimeChat({ conversationId, viewerRole }: Props) {
     }
     setInput("");
     setPendingFiles([]);
+    // Immediately reload so the sent message appears without waiting for Realtime
+    void loadMessages();
   };
 
   const submitReport = async () => {
