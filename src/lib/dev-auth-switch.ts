@@ -38,7 +38,15 @@ export const DEV_ACTORS: DevActorSeed[] = [
 ];
 
 export function isDevAuthSwitchEnabled() {
-  return process.env.NODE_ENV !== "production";
+  // Only allow dev auth switch in local development:
+  // 1. Must be non-production NODE_ENV
+  // 2. Must NOT be running on Vercel (covers preview/staging deployments)
+  // 3. Must have explicit opt-in via DEV_AUTH_ENABLED=true
+  // This prevents auth bypass on any Vercel preview/staging deployment.
+  if (process.env.NODE_ENV === "production") return false;
+  if (process.env.VERCEL === "1") return false;
+  if (process.env.VERCEL_ENV) return false; // covers "preview" and "development" on Vercel
+  return process.env.DEV_AUTH_ENABLED === "true";
 }
 
 export function getDevActorSeed(key: string | null | undefined) {
