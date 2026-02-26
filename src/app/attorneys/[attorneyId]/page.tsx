@@ -1,14 +1,60 @@
 export const dynamic = "force-dynamic";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { NavBar } from "@/components/ui/nav-bar";
+import { Footer } from "@/components/ui/footer";
 import { computeAttorneyTier, computeAttorneyTrustSummary } from "@/lib/attorney-trust";
+import { RadarChart } from "@/components/ui/radar-chart";
 
 function pct(v: number) {
   return `${Math.round(v * 100)}%`;
 }
 
 type Params = { params: Promise<{ attorneyId: string }> };
+
+// ─── SEO Metadata ────────────────────────────────────────────────────────────
+
+export async function generateMetadata({ params }: Params): Promise<Metadata> {
+  const { attorneyId } = await params;
+  const attorney = await prisma.attorneyProfile
+    .findUnique({
+      where: { id: attorneyId },
+      select: {
+        firstName: true,
+        lastName: true,
+        barState: true,
+        bio: true,
+        avatarUrl: true,
+        specialties: { select: { category: true }, take: 3 },
+      },
+    })
+    .catch(() => null);
+
+  if (!attorney) {
+    return { title: "Attorney Not Found | Law119" };
+  }
+
+  const fullName =
+    [attorney.firstName, attorney.lastName].filter(Boolean).join(" ") || "Attorney";
+  const specialtiesStr = attorney.specialties.map((s) => s.category).join(", ") || "法律";
+  const description = attorney.bio
+    ? attorney.bio.slice(0, 155).replace(/\n/g, " ") + "…"
+    : `${fullName} — ${attorney.barState ?? ""} 律师，专注 ${specialtiesStr}。在 Law119 查看执照资质、客户评价与案例展示。`;
+
+  return {
+    title: `${fullName} — ${attorney.barState ?? ""} 律师 | Law119`,
+    description,
+    openGraph: {
+      title: `${fullName} — ${attorney.barState ?? ""} 律师 | Law119`,
+      description,
+      type: "profile",
+      ...(attorney.avatarUrl ? { images: [{ url: attorney.avatarUrl }] } : {}),
+    },
+  };
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function AttorneyPublicProfilePage({ params }: Params) {
   const { attorneyId } = await params;
@@ -69,6 +115,7 @@ export default async function AttorneyPublicProfilePage({ params }: Params) {
             <p className="text-slate-700">律师档案不存在。</p>
           </div>
         </main>
+        <Footer />
       </>
     );
   }
@@ -114,9 +161,80 @@ export default async function AttorneyPublicProfilePage({ params }: Params) {
     professional: attorney.clientReviews.filter((r) => (r.ratingProfessionalism ?? 0) >= 4).length,
   };
 
+  // ── Radar chart scores (0–100 each) ────────────────────────────────────────
+  const radarScores: Record<string, number> = {
+    credentials: Math.min(Math.round((trust.credentialsScore / 75) * 100), 100),
+    responsiveness:
+      latestSnapshot?.avgFirstMessageMinutes != null
+        ? Math.min(
+            Math.max(
+              Math.round((1 - latestSnapshot.avgFirstMessageMinutes / 1440) * 100),
+              0,
+            ),
+            100,
+          )
+        : 50,
+    clientRating: reviewAvg != null ? Math.round((reviewAvg / 5) * 100) : 50,
+    compliance:
+      latestSnapshot?.complianceRiskScore != null
+        ? Math.max(0, Math.round((10 - latestSnapshot.complianceRiskScore * 0.1) * 10))
+        : 70,
+    experience: Math.min(Math.round(((attorney.yearsExperience ?? 5) / 20) * 100), 100),
+  };
+
+  // ── JSON-LD LegalService structured data ───────────────────────────────────
+  const fullName =
+    [attorney.firstName, attorney.lastName].filter(Boolean).join(" ") || "Attorney";
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "LegalService",
+    name: fullName,
+    description:
+      attorney.bio?.trim() ||
+      `${fullName} — ${attorney.barState ?? ""} 律师，专注 ${attorney.specialties.map((s) => s.category).join("、")}。`,
+    url: `https://law119.com/attorneys/${attorney.id}`,
+    ...(attorney.avatarUrl ? { image: attorney.avatarUrl } : {}),
+    areaServed: attorney.serviceAreas.map((s) => ({
+      "@type": "State",
+      name: s.stateCode,
+    })),
+    serviceType: attorney.specialties.map((s) => s.category),
+    knowsLanguage: attorney.languages.map((l) => l.language),
+    ...(attorney.barState
+      ? {
+          hasCredential: {
+            "@type": "EducationalOccupationalCredential",
+            credentialCategory: "Attorney License",
+            recognizedBy: {
+              "@type": "Organization",
+              name: `State Bar of ${attorney.barState}`,
+            },
+          },
+        }
+      : {}),
+    ...(reviewAvg != null && reviewCount > 0
+      ? {
+          aggregateRating: {
+            "@type": "AggregateRating",
+            ratingValue: reviewAvg.toFixed(1),
+            bestRating: "5",
+            worstRating: "1",
+            reviewCount: String(reviewCount),
+          },
+        }
+      : {}),
+  };
+
   return (
     <>
       <NavBar />
+
+      {/* JSON-LD structured data for SEO */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+
       <main className="min-h-screen bg-slate-50 pb-12">
         <div className="mx-auto max-w-5xl px-4 py-8">
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -136,7 +254,7 @@ export default async function AttorneyPublicProfilePage({ params }: Params) {
                   )}
                 </div>
                 <h1 className="text-2xl font-bold text-slate-900">
-                  {[attorney.firstName, attorney.lastName].filter(Boolean).join(" ") || "Attorney"}
+                  {fullName}
                 </h1>
                 <p className="mt-1 text-sm text-slate-500">
                   {attorney.firmName || "Independent Practice"} · {attorney.barState || "N/A"} · {yearsDisplay}
@@ -158,20 +276,33 @@ export default async function AttorneyPublicProfilePage({ params }: Params) {
                   ))}
                 </div>
               </div>
-              <div className="w-full max-w-xs rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs text-slate-500">Lawyer Trust Score</p>
-                <p className="mt-1 text-3xl font-bold text-slate-900">{trust.totalScore}<span className="ml-1 text-lg text-slate-500">/100</span></p>
-                <p className="mt-1 text-sm text-slate-600">等级 {trust.grade}</p>
-                <p className="mt-1 text-xs text-indigo-700">律师等级：{tier.label}</p>
-                <div className="mt-3 space-y-2 text-xs">
-                  <div className="flex items-center justify-between"><span>资质与验证</span><span className="font-semibold">{trust.credentialsScore}</span></div>
-                  <div className="flex items-center justify-between"><span>质量信号</span><span className="font-semibold">{trust.qualitySignalScore}</span></div>
-                  <div className="flex items-center justify-between"><span>合规表现</span><span className="font-semibold">{trust.complianceScore}</span></div>
-                  <div className="flex items-center justify-between"><span>客户评价</span><span className="font-semibold">{trust.serviceScore}</span></div>
+
+              {/* Trust score + Radar chart */}
+              <div className="w-full max-w-xs space-y-4">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs text-slate-500">Lawyer Trust Score</p>
+                  <p className="mt-1 text-3xl font-bold text-slate-900">{trust.totalScore}<span className="ml-1 text-lg text-slate-500">/100</span></p>
+                  <p className="mt-1 text-sm text-slate-600">等级 {trust.grade}</p>
+                  <p className="mt-1 text-xs text-indigo-700">律师等级：{tier.label}</p>
+                  <div className="mt-3 space-y-2 text-xs">
+                    <div className="flex items-center justify-between"><span>资质与验证</span><span className="font-semibold">{trust.credentialsScore}</span></div>
+                    <div className="flex items-center justify-between"><span>质量信号</span><span className="font-semibold">{trust.qualitySignalScore}</span></div>
+                    <div className="flex items-center justify-between"><span>合规表现</span><span className="font-semibold">{trust.complianceScore}</span></div>
+                    <div className="flex items-center justify-between"><span>客户评价</span><span className="font-semibold">{trust.serviceScore}</span></div>
+                  </div>
+                  <p className="mt-3 text-[11px] text-slate-500">
+                    简版评分用于客户决策参考，不构成平台对案件结果的保证。
+                  </p>
                 </div>
-                <p className="mt-3 text-[11px] text-slate-500">
-                  简版评分用于客户决策参考，不构成平台对案件结果的保证。
-                </p>
+
+                {/* SVG Radar chart */}
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 flex flex-col items-center">
+                  <p className="mb-3 text-xs font-semibold text-slate-600 self-start">能力雷达图 / Skill Radar</p>
+                  <RadarChart scores={radarScores} size={200} animated />
+                  <p className="mt-2 text-[10px] text-slate-400 text-center">
+                    悬停维度标签可查看具体分值
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -306,6 +437,8 @@ export default async function AttorneyPublicProfilePage({ params }: Params) {
           </section>
         </div>
       </main>
+
+      <Footer />
     </>
   );
 }

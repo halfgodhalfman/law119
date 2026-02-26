@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "../../../../../lib/prisma";
 import { summarizeCaseDescription } from "../../../../../lib/case-redaction";
 import { requireAuthContext } from "../../../../../lib/auth-context";
+import { zip3ProximityScore } from "../../../../../lib/matching/geo";
 
 const OPEN_CASE_STATUSES = ["OPEN", "MATCHING"] as const;
 
@@ -59,12 +60,13 @@ export async function GET(request: Request) {
           where: { id: attorneyProfileId },
           select: {
             specialties: { select: { category: true } },
-            serviceAreas: { select: { stateCode: true } },
+            serviceAreas: { select: { stateCode: true, zipCode: true } },
           },
         })
       : null;
     const specialtySet = new Set(attorneySignals?.specialties.map((s) => s.category) ?? []);
     const serviceStateSet = new Set(attorneySignals?.serviceAreas.map((s) => s.stateCode) ?? []);
+    const attorneyZip = attorneySignals?.serviceAreas.find((s) => s.zipCode)?.zipCode ?? null;
     const recommendationConfig = await prisma.recommendationConfig.findUnique({ where: { key: "case_hall" } });
 
     const variant =
@@ -204,6 +206,11 @@ export async function GET(request: Request) {
                   ? (variant === "B" ? recommendationConfig!.weightSoonDeadlineB : recommendationConfig!.weightSoonDeadlineA)
                   : 70;
 
+                const proximityScore =
+                  item.zipCode && attorneyZip
+                    ? zip3ProximityScore(item.zipCode, attorneyZip)
+                    : 0;
+
                 let scoreValue =
                   (hasMyBid ? -120 : unquotedWeight) +
                   (quoteable ? quoteableWeight : -200) +
@@ -211,7 +218,8 @@ export async function GET(request: Request) {
                   urgencyScore +
                   (specialtyMatch ? categoryWeight : 0) +
                   (stateMatch ? stateWeight : 0) +
-                  recencyBoost -
+                  recencyBoost +
+                  proximityScore -
                   Math.min(item._count.bids * bidCrowdingPenaltyPer, bidCrowdingPenaltyCap);
 
                 if (useConfig) {
@@ -282,6 +290,8 @@ export async function GET(request: Request) {
         if (serviceStateSet.has(item.stateCode)) reasons.push("服务州匹配");
         if (wl.size > 0 && wl.has(item.category)) reasons.push("白名单类目");
         if (bl.has(item.category)) reasons.push("黑名单类目(降权)");
+        if (item.zipCode && attorneyZip && zip3ProximityScore(item.zipCode, attorneyZip) > 0)
+          reasons.push("距离优先");
       }
       if (item.urgency === "URGENT" || item.urgency === "HIGH") reasons.push(`紧急度${item.urgency}`);
       if (highRisk) reasons.push("高风险降权");

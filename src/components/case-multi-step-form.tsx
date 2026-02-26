@@ -1,16 +1,18 @@
 "use client";
 
-import { Fragment, useMemo, useRef, useState } from "react";
+import { Fragment, Suspense, useMemo, useRef, useState } from "react";
 // useRef used in ImagePickerForForm and pendingFilesRef in CaseMultiStepFormInner
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { I18nextProvider, useTranslation } from "react-i18next";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import i18n from "../lib/i18n";
 import { CaseSubmissionValues, caseSubmissionSchema } from "../lib/validation";
 import { LANGUAGES, LEGAL_CATEGORIES, URGENCY_LEVELS } from "../types/case-form";
 import { CheckIcon, ShieldCheckIcon, CheckCircleIcon, SpinnerIcon, ArrowRightIcon } from "./ui/icons";
 import { CaseImageUploader } from "./case-image-uploader";
+import { useMarketplaceAuth } from "../lib/use-marketplace-auth";
 
 const STEP_LABELS = [
   { en: "Legal Category", zh: "法律类别" },
@@ -142,8 +144,17 @@ function XMarkIconSmall() {
 
 function CaseMultiStepFormInner() {
   const { t } = useTranslation();
+  const searchParams = useSearchParams();
+  const { viewer, loading: authLoading } = useMarketplaceAuth();
+
+  // Pre-fill category and urgency from URL params (e.g. from emergency page)
+  const rawCategory = searchParams.get("category") ?? "";
+  const rawUrgency = searchParams.get("urgency") ?? "";
+  const initialCategory = LEGAL_CATEGORIES.find((c) => c === rawCategory) ?? "IMMIGRATION";
+  const initialUrgency = URGENCY_LEVELS.find((u) => u === rawUrgency) ?? "MEDIUM";
+
   const [step, setStep] = useState(0);
-  const [submitState, setSubmitState] = useState<"idle" | "submitting" | "success" | "error">("idle");
+  const [submitState, setSubmitState] = useState<"idle" | "submitting" | "success" | "error" | "attorney-blocked">("idle");
   const [createdCaseId, setCreatedCaseId] = useState<string | null>(null);
   const pendingFilesRef = useRef<File[]>([]);
 
@@ -157,9 +168,9 @@ function CaseMultiStepFormInner() {
   } = useForm<CaseSubmissionValues>({
     resolver: zodResolver(caseSubmissionSchema),
     defaultValues: {
-      category: "IMMIGRATION",
+      category: initialCategory,
       preferredLanguage: "MANDARIN",
-      urgency: "MEDIUM",
+      urgency: initialUrgency,
       stateCode: "",
       zipCode: "",
       description: "",
@@ -174,6 +185,9 @@ function CaseMultiStepFormInner() {
   const watchedUrgency = watch("urgency");
   const watchedLanguage = watch("preferredLanguage");
 
+  const isAttorney = viewer.user?.role === "ATTORNEY";
+  const isLoggedInClient = viewer.user?.role === "CLIENT";
+
   const steps = useMemo(
     () => [
       ["category"] as const,
@@ -182,6 +196,39 @@ function CaseMultiStepFormInner() {
     ],
     [],
   );
+
+  // Attorney role guard — shown once auth has loaded
+  if (!authLoading && isAttorney) {
+    return (
+      <div className="bg-white rounded-2xl border-2 border-amber-300 shadow-sm p-10 text-center space-y-4">
+        <div className="h-16 w-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto">
+          <span className="text-3xl">⚖️</span>
+        </div>
+        <h2 className="text-xl font-bold text-slate-900">律师账号无法发案</h2>
+        <p className="text-slate-600 text-sm max-w-sm mx-auto">
+          您当前以律师身份登录，律师账号不支持发布案件。如需代理客户发案，请切换至客户账号。
+        </p>
+        <p className="text-slate-500 text-xs">
+          Attorney accounts cannot post cases. Please sign in with a client account to submit a case.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
+          <Link
+            href="/auth/sign-in?role=client"
+            className="inline-flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-500 text-white font-semibold px-6 py-2.5 rounded-xl transition-colors text-sm"
+          >
+            切换至客户账号 / Switch to Client Account
+            <ArrowRightIcon className="h-4 w-4" />
+          </Link>
+          <Link
+            href="/marketplace/case-hall"
+            className="inline-flex items-center justify-center gap-2 border border-slate-300 hover:border-slate-400 text-slate-700 font-medium px-6 py-2.5 rounded-xl transition-colors text-sm"
+          >
+            前往案件大厅 / Go to Case Hall
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   // All handlers preserved from original
   const nextStep = async () => {
@@ -200,7 +247,11 @@ function CaseMultiStepFormInner() {
       body: JSON.stringify({ ...values }),
     });
     if (!res.ok) {
-      setSubmitState("error");
+      if (res.status === 403) {
+        setSubmitState("attorney-blocked");
+      } else {
+        setSubmitState("error");
+      }
       return;
     }
     const json = await res.json();
@@ -221,24 +272,80 @@ function CaseMultiStepFormInner() {
 
   // Success screen
   if (submitState === "success") {
+    const shortId = createdCaseId ? createdCaseId.slice(-8).toUpperCase() : null;
     return (
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-10 text-center">
-        <div className="h-16 w-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-6">
-          <CheckCircleIcon className="h-9 w-9 text-emerald-600" />
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 sm:p-10">
+        <div className="text-center mb-6">
+          <div className="h-16 w-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <CheckCircleIcon className="h-9 w-9 text-emerald-600" />
+          </div>
+          <h2 className="text-2xl font-bold text-slate-900">案件已提交 / Case Submitted!</h2>
+          {shortId && (
+            <p className="text-slate-400 text-xs mt-2 font-mono tracking-wider">
+              案件编号 / Case ID: <span className="font-bold text-slate-600">{shortId}</span>
+            </p>
+          )}
         </div>
-        <h2 className="text-2xl font-bold text-slate-900">Case Submitted! / 案件已提交</h2>
-        <p className="text-slate-500 mt-3 text-sm max-w-sm mx-auto">{t("success")}</p>
-        <p className="text-slate-400 text-xs mt-2">
-          Matched attorneys will review your case and reach out soon.
-          <span className="block">匹配的律师将审阅您的案件并尽快与您联系。</span>
-        </p>
-        <Link
-          href="/"
-          className="mt-8 inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-700 text-white font-semibold px-6 py-3 rounded-xl transition-colors"
-        >
-          Return Home / 返回首页
-          <ArrowRightIcon className="h-4 w-4" />
-        </Link>
+
+        {/* Next steps */}
+        <div className="bg-slate-50 rounded-xl border border-slate-200 p-5 mb-6">
+          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-4">
+            接下来会发生什么？/ What happens next?
+          </h3>
+          <ol className="space-y-3">
+            {[
+              { emoji: "🔍", zh: "平台正在为您匹配附近的专业律师", en: "Matching qualified attorneys in your area" },
+              { emoji: "📞", zh: "预计2小时内，律师将通过您留下的联系方式与您联系", en: "An attorney will contact you within ~2 hours" },
+              { emoji: "🔔", zh: "查看平台通知获取进展更新", en: "Check notifications for case updates" },
+            ].map((item, i) => (
+              <li key={i} className="flex items-start gap-3">
+                <span className="flex-shrink-0 h-6 w-6 bg-amber-100 rounded-full flex items-center justify-center text-xs font-bold text-amber-700">
+                  {i + 1}
+                </span>
+                <div>
+                  <p className="text-sm text-slate-800">{item.zh}</p>
+                  <p className="text-xs text-slate-500">{item.en}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+
+        {/* Anonymous case tracking link */}
+        {!viewer.user && createdCaseId && (
+          <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <p className="text-sm font-semibold text-amber-900">📋 案件追踪 / Track Your Case</p>
+            <p className="text-xs text-amber-700 mt-1">
+              无需注册，使用此专属链接随时查看案件进展：
+            </p>
+            <Link
+              href={`/case/track/${createdCaseId}`}
+              className="text-xs text-blue-700 underline break-all mt-1 block hover:text-blue-900"
+            >
+              /case/track/{createdCaseId}
+            </Link>
+            <p className="text-xs text-slate-500 mt-1">建议截图或复制保存此链接。</p>
+            <p className="text-xs text-slate-400">
+              No account needed — use this link anytime to check your case status.
+            </p>
+          </div>
+        )}
+
+        <div className="flex flex-col sm:flex-row gap-3">
+          <Link
+            href="/marketplace/notifications"
+            className="flex-1 inline-flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-500 text-white font-semibold px-5 py-3 rounded-xl transition-colors text-sm"
+          >
+            查看通知 / View Notifications
+            <ArrowRightIcon className="h-4 w-4" />
+          </Link>
+          <Link
+            href="/"
+            className="flex-1 inline-flex items-center justify-center gap-2 border border-slate-300 hover:border-slate-400 text-slate-700 font-medium px-5 py-3 rounded-xl transition-colors text-sm"
+          >
+            返回首页 / Return Home
+          </Link>
+        </div>
       </div>
     );
   }
@@ -465,6 +572,25 @@ function CaseMultiStepFormInner() {
               {errors.urgency && <p className="mt-1 text-xs text-rose-600">{errors.urgency.message}</p>}
             </div>
 
+            {/* Budget Range (Optional) */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                预算区间 / Expected Budget
+                <span className="text-slate-400 text-xs font-normal ml-1.5">（可选 / Optional）</span>
+              </label>
+              <select
+                {...register("budgetRange")}
+                className="w-full border border-slate-300 rounded-lg px-4 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors"
+              >
+                <option value="any">不确定 / Not sure</option>
+                <option value="under_1k">{"< $1,000"}</option>
+                <option value="1k_5k">$1,000 – $5,000</option>
+                <option value="5k_10k">$5,000 – $10,000</option>
+                <option value="10k_30k">$10,000 – $30,000</option>
+                <option value="over_30k">{"> $30,000"}</option>
+              </select>
+            </div>
+
             {/* Description */}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">{t("fields.description")}</label>
@@ -482,26 +608,40 @@ function CaseMultiStepFormInner() {
               <ImagePickerForForm onFilesChange={(files) => { pendingFilesRef.current = files; }} />
             </div>
 
-            {/* Contact Info — REQUIRED */}
+            {/* Contact Info */}
             <div className="rounded-xl border-2 border-emerald-300 bg-emerald-50 p-4 space-y-4">
               <div className="flex items-start gap-2.5">
                 <span className="text-lg leading-none">🔒</span>
                 <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs font-bold text-emerald-900">联系方式（必填）/ Contact Info (Required)</p>
-                    <span className="text-[10px] font-bold bg-rose-500 text-white px-1.5 py-0.5 rounded-full">必填</span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-xs font-bold text-emerald-900">
+                      联系方式 / Contact Info
+                    </p>
+                    {isLoggedInClient ? (
+                      <span className="text-[10px] font-bold bg-slate-500 text-white px-1.5 py-0.5 rounded-full">可选 / Optional</span>
+                    ) : (
+                      <span className="text-[10px] font-bold bg-rose-500 text-white px-1.5 py-0.5 rounded-full">必填 / Required</span>
+                    )}
                   </div>
-                  <p className="text-xs text-emerald-700 mt-0.5">
-                    律师匹配后通过此联系方式与您沟通，信息仅律师可见，平台保密。
-                    <span className="block text-emerald-600 mt-0.5">Visible only to matched attorneys. Never shared publicly.</span>
-                  </p>
+                  {isLoggedInClient ? (
+                    <p className="text-xs text-emerald-700 mt-0.5">
+                      您已登录，律师可通过平台消息与您联系，手机/邮箱为可选项。
+                      <span className="block text-emerald-600 mt-0.5">Logged in — attorneys can message you via platform. Contact info is optional.</span>
+                    </p>
+                  ) : (
+                    <p className="text-xs text-emerald-700 mt-0.5">
+                      请填写联系方式，律师配对后将通过此信息与您联系，仅律师可见。
+                      <span className="block text-emerald-600 mt-0.5">Required so matched attorneys can contact you. Visible only to matched attorneys.</span>
+                    </p>
+                  )}
                 </div>
               </div>
               {/* Phone */}
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1.5">
                   手机号码 / Phone Number
-                  <span className="text-rose-500 ml-1">*</span>
+                  {!isLoggedInClient && <span className="text-rose-500 ml-1">*</span>}
+                  {isLoggedInClient && <span className="text-slate-400 text-xs font-normal ml-1">（可选）</span>}
                 </label>
                 <input
                   type="tel"
@@ -521,7 +661,8 @@ function CaseMultiStepFormInner() {
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1.5">
                   联系邮箱 / Contact Email
-                  <span className="text-rose-500 ml-1">*</span>
+                  {!isLoggedInClient && <span className="text-rose-500 ml-1">*</span>}
+                  {isLoggedInClient && <span className="text-slate-400 text-xs font-normal ml-1">（可选）</span>}
                 </label>
                 <input
                   type="email"
@@ -673,6 +814,15 @@ function CaseMultiStepFormInner() {
             <p className="text-xs text-rose-500 mt-1">如问题持续，请刷新页面后重新填写。 If the issue persists, refresh and try again.</p>
           </div>
         )}
+        {submitState === "attorney-blocked" && (
+          <div className="mt-4 text-sm text-amber-800 bg-amber-50 border border-amber-300 rounded-lg px-4 py-3">
+            <p className="font-semibold">⚖️ 律师账号无法发案 / Attorney accounts cannot post cases.</p>
+            <p className="text-xs text-amber-700 mt-1">
+              请切换至客户账号后重新提交。/ Please sign in with a client account and resubmit.{" "}
+              <Link href="/auth/sign-in?role=client" className="underline hover:text-amber-900">切换账号 →</Link>
+            </p>
+          </div>
+        )}
       </form>
     </div>
   );
@@ -681,7 +831,13 @@ function CaseMultiStepFormInner() {
 export function CaseMultiStepForm() {
   return (
     <I18nextProvider i18n={i18n}>
-      <CaseMultiStepFormInner />
+      <Suspense fallback={
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-10 text-center">
+          <div className="h-8 w-8 border-2 border-amber-600 border-t-transparent rounded-full animate-spin mx-auto" />
+        </div>
+      }>
+        <CaseMultiStepFormInner />
+      </Suspense>
     </I18nextProvider>
   );
 }

@@ -419,19 +419,10 @@ function CaseHallInner() {
           <div className="max-w-6xl mx-auto px-4 py-8">
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-amber-600">Marketplace MVP</p>
-                <h1 className="text-2xl font-bold text-slate-900 mt-1">案件大厅（律师接单大厅）</h1>
-                <p className="text-sm text-slate-500 mt-2">
-                  借鉴帮帮网的大厅结构：筛选 + 列表卡片 + 进入详情后报价。
-                </p>
-                <p className="text-xs text-slate-400 mt-2">
-                  推荐排序（MVP）：优先未报价、可报价、即将截止、高紧急度，并参考律师服务州/擅长类目匹配。
-                </p>
-                {!authLoading && (
+                <h1 className="text-2xl font-bold text-slate-900">案件大厅 / Case Hall</h1>
+                <p className="text-sm text-slate-500 mt-2">浏览开放案件，选择您擅长的案件提交报价。</p>
+                {!authLoading && viewer.user?.role === "ATTORNEY" && (
                   <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-700">
-                      当前角色：{viewer.user?.role ?? "ANONYMOUS"}
-                    </span>
                     <Link href="/marketplace/my-cases" className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-700 hover:bg-slate-200">
                       我的案件
                     </Link>
@@ -570,16 +561,9 @@ function CaseHallInner() {
                 仅看我已报价
               </label>
             </div>
-            <p className="mt-3 text-sm text-slate-500">共 {meta.total} 条案件</p>
+            <p className="mt-3 text-sm text-slate-500">共 {meta.total} 条开放案件</p>
             {viewer.user?.role === "ATTORNEY" && (
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                <input
-                  ref={importPresetInputRef}
-                  type="file"
-                  accept="application/json,.json"
-                  onChange={onImportRecommendedPresetsFile}
-                  className="hidden"
-                />
                 <button
                   type="button"
                   onClick={saveRecommendedPrefs}
@@ -600,21 +584,6 @@ function CaseHallInner() {
                   className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs hover:bg-slate-50"
                 >
                   清除常用筛选
-                </button>
-                <button
-                  type="button"
-                  onClick={exportRecommendedPresetsJson}
-                  disabled={savedPresets.length === 0}
-                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs hover:bg-slate-50 disabled:opacity-50"
-                >
-                  导出 JSON
-                </button>
-                <button
-                  type="button"
-                  onClick={() => importPresetInputRef.current?.click()}
-                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs hover:bg-slate-50"
-                >
-                  导入 JSON
                 </button>
                 {prefMsg && <span className="text-xs text-emerald-700">{prefMsg}</span>}
               </div>
@@ -685,8 +654,31 @@ function CaseHallInner() {
           {error && <div className="text-sm text-rose-700">加载失败：{error}</div>}
 
           {!loading && !error && items.length === 0 && (
-            <div className="bg-white border border-slate-200 rounded-xl p-6 text-sm text-slate-500">
-              暂无匹配案件。你可以先去发布一个测试案件，再回到大厅查看。
+            <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center">
+              <div className="text-4xl mb-4">📭</div>
+              <h3 className="text-base font-semibold text-slate-800">当前暂无开放案件</h3>
+              <p className="text-sm text-slate-500 mt-2 max-w-sm mx-auto">
+                目前没有符合筛选条件的新案件。新案件发布后会第一时间出现在此处。
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                No open cases match your current filters. New cases will appear here when posted.
+              </p>
+              <div className="mt-5 flex gap-3 justify-center">
+                <button
+                  type="button"
+                  onClick={() => setFilters({ category: "", stateCode: "", feeMode: "", budgetMin: "", budgetMax: "", deadlineWindow: "", urgency: "", sort: "latest", recommendationReasons: [], page: 1, quoteableOnly: false, mineBidOnly: false })}
+                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                >
+                  清空筛选 / Clear Filters
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void (async () => { setLoading(true); setError(null); })()}
+                  className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 transition-colors"
+                >
+                  刷新 / Refresh
+                </button>
+              </div>
             </div>
           )}
 

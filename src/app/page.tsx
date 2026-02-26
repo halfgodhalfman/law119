@@ -13,6 +13,7 @@ import {
   CheckCircleIcon,
 } from "../components/ui/icons";
 import { LEGAL_CATEGORIES, HOT_SUB_CATEGORIES } from "../lib/legal-categories";
+import { prisma } from "../lib/prisma";
 
 const STATS = [
   { value: "500+", label: "Cases Matched", zh: "成功匹配案件" },
@@ -140,7 +141,54 @@ const TRUST_FEATURES = [
   },
 ];
 
-export default function HomePage() {
+function formatRelativeTime(date: Date): string {
+  const now = Date.now();
+  const diff = now - date.getTime();
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  if (days === 0) return "今天";
+  if (days < 7) return `${days}天前`;
+  if (days < 30) return `${Math.floor(days / 7)}周前`;
+  if (days < 365) return `${Math.floor(days / 30)}个月前`;
+  return `${Math.floor(days / 365)}年前`;
+}
+
+export default async function HomePage() {
+  // Fetch real published reviews from DB; fall back to static REVIEWS if none exist
+  const dbReviews = await prisma.attorneyClientReview
+    .findMany({
+      where: { status: "PUBLISHED", comment: { not: null } },
+      orderBy: { createdAt: "desc" },
+      take: 6,
+      select: {
+        id: true,
+        ratingOverall: true,
+        comment: true,
+        createdAt: true,
+        attorney: {
+          select: {
+            firstName: true,
+            lastName: true,
+            specialties: { take: 1, select: { category: true } },
+          },
+        },
+        client: { select: { firstName: true, zipCode: true } },
+      },
+    })
+    .catch(() => []);
+
+  const reviews =
+    dbReviews.length > 0
+      ? dbReviews.map((r) => ({
+          id: r.id,
+          name: r.client.firstName ? `${r.client.firstName}先生/女士` : "匿名用户",
+          city: r.client.zipCode ?? "美国",
+          category: r.attorney.specialties[0]?.category ?? "法律",
+          rating: r.ratingOverall,
+          text: r.comment ?? "",
+          time: formatRelativeTime(r.createdAt),
+        }))
+      : REVIEWS.map((r, i) => ({ ...r, id: `static-${i}` }));
+
   return (
     <div className="flex flex-col min-h-screen bg-slate-50">
       <NavBar />
@@ -452,8 +500,8 @@ export default function HomePage() {
           </div>
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {REVIEWS.map((review) => (
-              <div key={review.name} className="bg-slate-50 border border-slate-200 rounded-2xl p-5">
+            {reviews.map((review) => (
+              <div key={review.id} className="bg-slate-50 border border-slate-200 rounded-2xl p-5">
                 {/* Stars */}
                 <div className="flex gap-0.5 mb-3">
                   {[1,2,3,4,5].map(i => (

@@ -391,6 +391,12 @@ export function RealtimeChat({ conversationId, viewerRole }: Props) {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // ── Voice recording state ────────────────────────────────────────────────
+  const [isRecording, setIsRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [hasMediaRecorder, setHasMediaRecorder] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const [acceptingConsultation, setAcceptingConsultation] = useState(false);
   const [acceptingDisclaimer, setAcceptingDisclaimer] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
@@ -520,6 +526,70 @@ export function RealtimeChat({ conversationId, viewerRole }: Props) {
     const data = await res.json();
     return data.attachments.map((a: { id: string }) => a.id);
   }, [conversationId]);
+
+  // ── MediaRecorder availability (browser-only check) ──────────────────────
+  useEffect(() => {
+    setHasMediaRecorder(typeof window !== "undefined" && "MediaRecorder" in window);
+  }, []);
+
+  // ── Voice recording helpers ───────────────────────────────────────────────
+  const startRecording = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/webm")
+        ? "audio/webm"
+        : "";
+      const mr = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      audioChunksRef.current = [];
+
+      mr.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      mr.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(audioChunksRef.current, {
+          type: mr.mimeType || "audio/webm",
+        });
+        if (blob.size === 0) return;
+
+        setTranscribing(true);
+        try {
+          const formData = new FormData();
+          formData.append("audio", blob, "recording.webm");
+          const res = await fetch("/api/ai/transcribe", {
+            method: "POST",
+            body: formData,
+          });
+          const json = (await res.json().catch(() => ({ text: "" }))) as { text?: string };
+          if (json.text && json.text.trim()) {
+            setInput((prev) => (prev ? `${prev} ${json.text}` : (json.text ?? "")));
+          }
+        } catch {
+          // Silently fall through if transcription fails
+        } finally {
+          setTranscribing(false);
+        }
+      };
+
+      mediaRecorderRef.current = mr;
+      mr.start();
+      setIsRecording(true);
+    } catch {
+      // Microphone access denied or unavailable
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current = null;
+      setIsRecording(false);
+    }
+  };
 
   const sendMessage = async () => {
     if (!input.trim() || !payload?.disclaimer.viewerAccepted || payload?.safety?.canSendMessages === false || acceptingDisclaimer) return;
@@ -1169,9 +1239,30 @@ export function RealtimeChat({ conversationId, viewerRole }: Props) {
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
                 </button>
+                {/* 🎤 Voice recording button */}
+                {hasMediaRecorder && (
+                  <button
+                    type="button"
+                    disabled={sending || acceptingDisclaimer || transcribing || payload.safety?.canSendMessages === false}
+                    onClick={isRecording ? stopRecording : () => void startRecording()}
+                    className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl text-white transition-all disabled:cursor-not-allowed disabled:opacity-40 ${
+                      isRecording ? "animate-pulse bg-red-600 hover:bg-red-500"
+                        : transcribing ? "cursor-wait bg-amber-500"
+                        : "bg-slate-600 hover:bg-slate-500"
+                    }`}
+                    aria-label={isRecording ? "停止录音 Stop recording" : "语音输入 Voice input"}
+                    title={isRecording ? "点击停止录音并转文字" : transcribing ? "正在转文字..." : "语音输入（点击录音，再次点击停止）"}
+                  >
+                    {transcribing ? (
+                      <SpinnerIcon className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <span className="text-base leading-none" aria-hidden>{isRecording ? "⏹" : "🎤"}</span>
+                    )}
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={sendMessage}
+                  onClick={() => void sendMessage()}
                   disabled={sending || uploadingFiles || acceptingDisclaimer || !input.trim() || !payload.disclaimer.viewerAccepted || payload.safety?.canSendMessages === false}
                   className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
                   aria-label="Send message"

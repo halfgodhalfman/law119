@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "../../../../../../lib/prisma";
 import { requireAuthContext } from "../../../../../../lib/auth-context";
 import { evaluateContentRulesConfigured, persistContentRuleHits, summarizeRuleHits } from "../../../../../../lib/content-rules";
+import { notifyClientAboutBid } from "../../../../../../lib/notifications";
 
 const submitBidSchema = z
   .object({
@@ -164,6 +165,15 @@ export async function POST(request: Request, { params }: RouteParams) {
     if (bidRuleHits.length) {
       await persistContentRuleHits({ scope: "BID_SUBMISSION", text: bidRuleText, actorUserId: auth.authUserId, caseId, bidId: bid.id }, bidRuleHits).catch(() => null);
     }
+
+    // Notify the case client about this bid (fire-and-forget, non-blocking)
+    notifyClientAboutBid({
+      caseId,
+      bidId: bid.id,
+      feeQuoteMin: bid.feeQuoteMin != null ? Number(bid.feeQuoteMin) : null,
+      feeQuoteMax: bid.feeQuoteMax != null ? Number(bid.feeQuoteMax) : null,
+      attorneyProfileId: auth.attorneyProfileId!,
+    }).catch((e: unknown) => console.error("Bid client notification failed:", e));
 
     return NextResponse.json({
       ok: true,

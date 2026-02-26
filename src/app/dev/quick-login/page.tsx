@@ -35,8 +35,8 @@ export default function DevQuickLoginPage() {
     setError(null);
     try {
       const res = await fetch("/api/dev/auth-switch", { cache: "no-store" });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((json as { error?: string }).error || "Failed");
       setData(json);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed");
@@ -58,8 +58,8 @@ export default function DevQuickLoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ actor: actorKey }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Switch failed");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((json as { error?: string }).error || "Switch failed");
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Switch failed");

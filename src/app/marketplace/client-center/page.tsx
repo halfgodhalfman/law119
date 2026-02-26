@@ -85,6 +85,9 @@ export default function ClientCenterPage() {
             <div className="flex flex-wrap gap-2">
               <Link href="/marketplace/post-case" className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white">发布案件</Link>
               <Link href="/marketplace/client-conversations" className="rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-white">消息中心</Link>
+              <Link href="/marketplace/payments" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100">
+                📋 履约里程碑
+              </Link>
               <Link href="/marketplace/support-center" className="rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-white">支持中心</Link>
             </div>
           </div>
@@ -179,9 +182,14 @@ export default function ClientCenterPage() {
                         </div>
                         <p className="mt-2 text-sm font-semibold text-slate-900">{c.title}</p>
                         <p className="mt-1 text-xs text-slate-500">报价 {c._count?.bids ?? 0} · 会话 {c._count?.conversations ?? 0}</p>
-                        <div className="mt-2 flex gap-2 text-xs">
+                        <div className="mt-2 flex flex-wrap gap-2 text-xs">
                           <Link href={`/marketplace/cases/${c.id}`} className="underline">案件详情</Link>
                           <Link href={`/marketplace/cases/${c.id}/select`} className="underline">选择律师</Link>
+                          {(c.lifecycle === "MATCHED" || c.lifecycle === "COMPLETED") && (
+                            <Link href="/marketplace/payments" className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700 hover:bg-amber-200">
+                              查看履约进度 →
+                            </Link>
+                          )}
                         </div>
                       </div>
                     ))}

@@ -101,13 +101,13 @@ export function Footer() {
                 </Link>
               </li>
               <li>
-                <span className="text-slate-600 text-sm cursor-not-allowed">隐私政策</span>
+                <Link href="/legal/privacy" className="text-slate-400 hover:text-white text-sm transition-colors">隐私政策</Link>
               </li>
               <li>
-                <span className="text-slate-600 text-sm cursor-not-allowed">服务条款</span>
+                <Link href="/legal/terms" className="text-slate-400 hover:text-white text-sm transition-colors">服务条款</Link>
               </li>
               <li>
-                <span className="text-slate-600 text-sm cursor-not-allowed">律师职业道德声明</span>
+                <Link href="/legal/attorney-terms" className="text-slate-400 hover:text-white text-sm transition-colors">律师职业道德声明</Link>
               </li>
             </ul>
           </div>

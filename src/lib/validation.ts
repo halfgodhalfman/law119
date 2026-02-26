@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { LANGUAGES, LEGAL_CATEGORIES, URGENCY_LEVELS } from "../types/case-form";
 
+export const BUDGET_RANGES = ["any", "under_1k", "1k_5k", "5k_10k", "10k_30k", "over_30k"] as const;
+export type BudgetRange = (typeof BUDGET_RANGES)[number];
+
 export const caseSubmissionSchema = z.object({
   category: z.enum(LEGAL_CATEGORIES),
   stateCode: z
@@ -28,6 +31,7 @@ export const caseSubmissionSchema = z.object({
     .trim()
     .min(1, "请填写联系邮箱 / Contact email is required.")
     .email("请填写有效邮箱 / Please enter a valid email address."),
+  budgetRange: z.enum(BUDGET_RANGES).optional(),
 });
 
 export type CaseSubmissionValues = z.infer<typeof caseSubmissionSchema>;

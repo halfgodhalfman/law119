@@ -232,6 +232,20 @@ export default function AttorneyOnboardingPage() {
         <p className="mt-1 text-sm text-slate-400">Complete your profile to start receiving matched cases</p>
       </div>
 
+      {/* Review Timeline Notice */}
+      <div className="mx-auto mb-6 max-w-2xl">
+        <div className="flex gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+          <span className="text-lg leading-none flex-shrink-0">⏱</span>
+          <div>
+            <p className="text-sm font-semibold text-amber-300">预计审核周期 / Review Timeline</p>
+            <p className="text-xs text-amber-400/80 mt-0.5">
+              提交后，我们团队将在 <strong className="text-amber-300">1-2个工作日</strong> 内审核您的律师执照并通知您结果。
+              <span className="block mt-0.5">After submission, our team verifies your bar license within <strong className="text-amber-300">1–2 business days</strong>.</span>
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Progress Steps */}
       <div className="mx-auto mb-8 max-w-2xl">
         <div className="flex items-center justify-between">

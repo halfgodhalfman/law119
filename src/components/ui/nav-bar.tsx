@@ -72,6 +72,12 @@ export function NavBar() {
                   全部服务
                 </Link>
                 <Link
+                  href="/attorneys"
+                  className="text-slate-300 hover:text-white text-sm font-medium transition-colors px-3 py-2 rounded-lg hover:bg-slate-800"
+                >
+                  找律师
+                </Link>
+                <Link
                   href="/emergency"
                   className="text-rose-400 hover:text-rose-300 text-sm font-medium transition-colors px-3 py-2 rounded-lg hover:bg-slate-800 flex items-center gap-1.5"
                 >

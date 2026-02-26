@@ -4,6 +4,7 @@ import { prisma } from "../../../lib/prisma";
 import { caseSubmissionSchema } from "../../../lib/validation";
 import { notifyMatchedAttorneys } from "../../../lib/notifications";
 import { requireAuthContext } from "../../../lib/auth-context";
+import { zip3ProximityScore } from "../../../lib/matching/geo";
 
 export async function POST(request: Request) {
   try {
@@ -24,7 +25,17 @@ export async function POST(request: Request) {
       );
     }
 
-    const { category, stateCode, zipCode, description, urgency, preferredLanguage, title, contactPhone, contactEmail } = parsed.data;
+    const { category, stateCode, zipCode, description, urgency, preferredLanguage, title, contactPhone, contactEmail, budgetRange } = parsed.data;
+
+    // Map budgetRange string to numeric budgetMin/budgetMax for DB storage
+    const BUDGET_MAP: Record<string, { min: number | null; max: number | null }> = {
+      under_1k: { min: 0,     max: 1000  },
+      "1k_5k":  { min: 1000,  max: 5000  },
+      "5k_10k": { min: 5000,  max: 10000 },
+      "10k_30k":{ min: 10000, max: 30000 },
+      over_30k: { min: 30000, max: null  },
+    };
+    const budget = budgetRange && budgetRange !== "any" ? BUDGET_MAP[budgetRange] : null;
 
     const newCase = await prisma.case.create({
       data: {
@@ -38,6 +49,8 @@ export async function POST(request: Request) {
         title,
         contactPhone: contactPhone ?? null,
         contactEmail: contactEmail ?? null,
+        budgetMin: budget?.min != null ? budget.min : null,
+        budgetMax: budget?.max != null ? budget.max : null,
       },
     });
 
@@ -56,19 +69,28 @@ export async function POST(request: Request) {
       },
       include: {
         user: true,
+        serviceAreas: { select: { zipCode: true }, take: 1 },
       },
     });
 
+    // Sort matched attorneys by proximity (nearest first) and cap at top 10 to avoid spam
+    const prioritizedAttorneys = matchedAttorneys
+      .filter((attorney) => Boolean(attorney.user.email))
+      .sort((a, b) => {
+        const scoreA = zip3ProximityScore(newCase.zipCode, a.serviceAreas[0]?.zipCode ?? "");
+        const scoreB = zip3ProximityScore(newCase.zipCode, b.serviceAreas[0]?.zipCode ?? "");
+        return scoreB - scoreA;
+      })
+      .slice(0, 10);
+
     await notifyMatchedAttorneys(
-      matchedAttorneys
-        .filter((attorney) => Boolean(attorney.user.email))
-        .map((attorney) => ({
-          attorneyEmail: attorney.user.email,
-          attorneyName: `${attorney.firstName ?? ""} ${attorney.lastName ?? ""}`.trim() || "Attorney",
-          caseId: newCase.id,
-          category: newCase.category,
-          zipCode: newCase.zipCode,
-        })),
+      prioritizedAttorneys.map((attorney) => ({
+        attorneyEmail: attorney.user.email,
+        attorneyName: `${attorney.firstName ?? ""} ${attorney.lastName ?? ""}`.trim() || "Attorney",
+        caseId: newCase.id,
+        category: newCase.category,
+        zipCode: newCase.zipCode,
+      })),
     );
 
     return NextResponse.json({

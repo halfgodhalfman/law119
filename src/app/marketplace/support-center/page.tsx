@@ -33,10 +33,24 @@ type DisputeItem = {
   createdAt: string;
 };
 
+type FaqItem = {
+  id: string;
+  question: string;
+  answer: string;
+  category: string | null;
+};
+
+const FALLBACK_FAQS: FaqItem[] = [
+  { id: "f1", question: "如何投诉律师或会话中的不当行为？", answer: '进入对应聊天页面，点击「举报」或「举报此消息」，平台会保留证据快照并进入审核流程。', category: null },
+  { id: "f2", question: "什么时候应该发起争议工单？", answer: "涉及服务范围争议、收费/退款争议、沟通长期停滞、里程碑释放争议时，建议发起争议工单由平台介入。", category: null },
+  { id: "f3", question: "平台可以直接提供法律意见吗？", answer: "平台提供撮合与运营支持，不构成法律意见。具体法律建议应由持证律师在正式委托关系下提供。", category: null },
+];
+
 export default function ClientSupportCenterPage() {
   const [reports, setReports] = useState<ReportItem[]>([]);
   const [disputes, setDisputes] = useState<DisputeItem[]>([]);
   const [supportTickets, setSupportTickets] = useState<any[]>([]);
+  const [faqs, setFaqs] = useState<FaqItem[]>(FALLBACK_FAQS);
   const [reportStatus, setReportStatus] = useState("");
   const [disputeStatus, setDisputeStatus] = useState("");
   const [loading, setLoading] = useState(true);
@@ -50,12 +64,18 @@ export default function ClientSupportCenterPage() {
       const disputeParams = new URLSearchParams();
       if (disputeStatus) disputeParams.set("status", disputeStatus);
 
-      const [r1, r2, r3] = await Promise.all([
+      const [r1, r2, r3, r4] = await Promise.all([
         fetch(`/api/marketplace/reports?${reportParams.toString()}`, { cache: "no-store" }),
         fetch(`/api/marketplace/disputes?${disputeParams.toString()}`, { cache: "no-store" }),
         fetch("/api/marketplace/support-tickets", { cache: "no-store" }),
+        fetch("/api/faqs?audience=CLIENT", { cache: "no-store" }),
       ]);
-      const [j1, j2, j3] = await Promise.all([r1.json().catch(() => ({})), r2.json().catch(() => ({})), r3.json().catch(() => ({}))]);
+      const [j1, j2, j3, j4] = await Promise.all([
+        r1.json().catch(() => ({})),
+        r2.json().catch(() => ({})),
+        r3.json().catch(() => ({})),
+        r4.json().catch(() => ({ faqs: [] })),
+      ]);
       if (!r1.ok || !r2.ok || !r3.ok) {
         setError(j1.error || j2.error || j3.error || "加载支持中心失败");
         setLoading(false);
@@ -64,6 +84,9 @@ export default function ClientSupportCenterPage() {
       setReports(j1.items ?? []);
       setDisputes(j2.items ?? []);
       setSupportTickets(j3.items ?? []);
+      if (Array.isArray(j4.faqs) && j4.faqs.length > 0) {
+        setFaqs(j4.faqs as FaqItem[]);
+      }
       setError(null);
       setLoading(false);
     };
@@ -225,18 +248,12 @@ export default function ClientSupportCenterPage() {
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <h2 className="text-lg font-semibold text-slate-900">常见问题（FAQ）</h2>
               <div className="mt-3 space-y-3 text-sm">
-                <div className="rounded-xl border border-slate-200 p-3">
-                  <p className="font-medium text-slate-900">如何投诉律师或会话中的不当行为？</p>
-                  <p className="mt-1 text-slate-600">进入对应聊天页面，点击“举报”或“举报此消息”，平台会保留证据快照并进入审核流程。</p>
-                </div>
-                <div className="rounded-xl border border-slate-200 p-3">
-                  <p className="font-medium text-slate-900">什么时候应该发起争议工单？</p>
-                  <p className="mt-1 text-slate-600">涉及服务范围争议、收费/退款争议、沟通长期停滞、里程碑释放争议时，建议发起争议工单由平台介入。</p>
-                </div>
-                <div className="rounded-xl border border-slate-200 p-3">
-                  <p className="font-medium text-slate-900">平台可以直接提供法律意见吗？</p>
-                  <p className="mt-1 text-slate-600">平台提供撮合与运营支持，不构成法律意见。具体法律建议应由持证律师在正式委托关系下提供。</p>
-                </div>
+                {faqs.slice(0, 6).map((faq) => (
+                  <div key={faq.id} className="rounded-xl border border-slate-200 p-3">
+                    <p className="font-medium text-slate-900">{faq.question}</p>
+                    <p className="mt-1 text-slate-600">{faq.answer}</p>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -257,7 +274,7 @@ export default function ClientSupportCenterPage() {
                 </div>
                 <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-blue-900">
                   <p className="font-medium">平台处理提示</p>
-                  <p className="mt-1 text-sm">举报与争议工单的处理进度会显示在本页面；如状态为“待我补充”，请尽快补充材料以避免延误。</p>
+                  <p className="mt-1 text-sm">举报与争议工单的处理进度会显示在本页面；如状态为"待我补充"，请尽快补充材料以避免延误。</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Link href="/marketplace/client-conversations" className="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-white">我的会话</Link>

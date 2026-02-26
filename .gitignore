@@ -6,3 +6,17 @@ dist
 coverage
 *.log
 *.tsbuildinfo
+
+# System files
+.DS_Store
+**/.DS_Store
+
+# Backup files
+.env.local.backup
+
+# IDE / Claude
+.claude/
+.claire/
+
+# Build artifacts
+tsconfig.tsbuildinfo

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { NavBar } from "@/components/ui/nav-bar";
 import { computeAttorneyTier, computeAttorneyTrustSummary } from "@/lib/attorney-trust";
+import { AttorneyCard } from "@/components/attorney/attorney-card";
 
 function pct(v?: number | null) {
   return `${Math.round((v ?? 0) * 100)}%`;
@@ -23,7 +24,7 @@ export default async function AttorneysDirectoryPage() {
         where: { status: "PUBLISHED" },
         orderBy: { createdAt: "desc" },
         take: 20,
-        select: { ratingOverall: true },
+        select: { ratingOverall: true, comment: true },
       },
     },
     take: 60,
@@ -58,6 +59,9 @@ export default async function AttorneysDirectoryPage() {
         qualityScore: snapshot?.qualityScore ?? null,
         complianceRiskScore: snapshot?.complianceRiskScore ?? null,
       });
+      const recentReviewComment =
+        a.clientReviews.find((r) => r.comment && r.comment.trim().length > 10)?.comment ?? null;
+
       return {
         attorney: a,
         trust,
@@ -66,6 +70,7 @@ export default async function AttorneysDirectoryPage() {
         reviewAvg: reviewAvg != null ? Number(reviewAvg.toFixed(1)) : null,
         snapshot,
         rankingScore,
+        recentReviewComment,
       };
     })
     .sort((a, b) => {
@@ -135,35 +140,17 @@ export default async function AttorneysDirectoryPage() {
             <h2 className="text-sm font-semibold text-slate-900">全部律师（按综合信任/质量排序）</h2>
             <div className="mt-4 grid gap-3">
               {rows.length === 0 && <p className="text-sm text-slate-500">暂无可展示律师。</p>}
-              {rows.map(({ attorney, trust, tier, reviewAvg, reviewCount, snapshot }) => (
-                <div key={attorney.id} className="rounded-xl border border-slate-200 p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="font-semibold text-slate-900">
-                        {[attorney.firstName, attorney.lastName].filter(Boolean).join(" ") || "Attorney"}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {attorney.firmName || "Independent Practice"} · {attorney.barState || "N/A"} · {attorney.yearsExperience ? `${attorney.yearsExperience}+ years` : "Years N/A"}
-                      </p>
-                      <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                        {attorney.specialties.slice(0, 4).map((s) => (
-                          <span key={`${attorney.id}-${s.category}`} className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">{s.category}</span>
-                        ))}
-                        {attorney.serviceAreas.slice(0, 4).map((s) => (
-                          <span key={`${attorney.id}-${s.stateCode}`} className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">{s.stateCode}</span>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-semibold text-slate-900">Trust {trust.totalScore}/100</p>
-                      <p className="text-xs text-slate-500">等级 {trust.grade} · {tier.label}</p>
-                      <p className="mt-1 text-xs text-slate-500">评价 {reviewAvg != null ? `${reviewAvg}/5` : "暂无"}（{reviewCount}）</p>
-                      <Link href={`/attorneys/${attorney.id}`} className="mt-2 inline-block rounded-lg border border-slate-300 px-3 py-1.5 text-xs hover:bg-slate-50">
-                        查看品牌页
-                      </Link>
-                    </div>
-                  </div>
-                </div>
+              {rows.map(({ attorney, trust, tier, reviewAvg, reviewCount, snapshot, recentReviewComment }) => (
+                <AttorneyCard
+                  key={attorney.id}
+                  attorney={attorney}
+                  trust={trust}
+                  tier={tier}
+                  reviewAvg={reviewAvg}
+                  reviewCount={reviewCount}
+                  snapshot={snapshot}
+                  recentReviewComment={recentReviewComment}
+                />
               ))}
             </div>
           </section>

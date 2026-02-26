@@ -10,7 +10,7 @@ const EMERGENCY_CATEGORIES = [
     en: "Criminal Arrest & Detention",
     desc: "被警方逮捕、拘留，需要立即联系刑事辩护律师，了解您的权利，安排保释。",
     urgency: "URGENT",
-    href: "/case/new?category=CRIMINAL",
+    href: "/case/new?category=CRIMINAL&urgency=URGENT",
     color: "border-rose-300 bg-rose-50",
     badge: "bg-rose-600 text-white",
   },
@@ -20,7 +20,7 @@ const EMERGENCY_CATEGORIES = [
     en: "Foreclosure & Eviction Notice",
     desc: "收到法院止赎令或房东驱逐通知，有严格的法定期限，需要尽快获得法律援助。",
     urgency: "URGENT",
-    href: "/case/new?category=REAL_ESTATE",
+    href: "/case/new?category=REAL_ESTATE&urgency=URGENT",
     color: "border-rose-300 bg-rose-50",
     badge: "bg-rose-600 text-white",
   },
@@ -30,7 +30,7 @@ const EMERGENCY_CATEGORIES = [
     en: "Domestic Violence & Restraining Order",
     desc: "遭遇家庭暴力，需要申请保护令或紧急人身安全保护，法律援助可快速介入。",
     urgency: "URGENT",
-    href: "/case/new?category=FAMILY",
+    href: "/case/new?category=FAMILY&urgency=URGENT",
     color: "border-rose-300 bg-rose-50",
     badge: "bg-rose-600 text-white",
   },
@@ -40,7 +40,7 @@ const EMERGENCY_CATEGORIES = [
     en: "Immigration Detention & ICE",
     desc: "被移民局（ICE）拘留，或收到驱逐令，需要立即联系移民律师处理紧急状况。",
     urgency: "URGENT",
-    href: "/case/new?category=IMMIGRATION",
+    href: "/case/new?category=IMMIGRATION&urgency=URGENT",
     color: "border-rose-300 bg-rose-50",
     badge: "bg-rose-600 text-white",
   },
@@ -50,7 +50,7 @@ const EMERGENCY_CATEGORIES = [
     en: "DUI / Traffic Accident",
     desc: "DUI被捕、重大交通事故伤亡、肇事逃逸，有短暂窗口期申诉驾照和处理刑事指控。",
     urgency: "HIGH",
-    href: "/case/new?category=CRIMINAL",
+    href: "/case/new?category=CRIMINAL&urgency=HIGH",
     color: "border-orange-300 bg-orange-50",
     badge: "bg-orange-500 text-white",
   },
@@ -60,7 +60,7 @@ const EMERGENCY_CATEGORIES = [
     en: "Emergency Business Dispute",
     desc: "合同违约、财产冻结、紧急禁令申请，商业纠纷中时效性关键，需快速法律介入。",
     urgency: "HIGH",
-    href: "/case/new?category=BUSINESS",
+    href: "/case/new?category=BUSINESS&urgency=HIGH",
     color: "border-orange-300 bg-orange-50",
     badge: "bg-orange-500 text-white",
   },
@@ -70,7 +70,7 @@ const EMERGENCY_CATEGORIES = [
     en: "Urgent Labor & Employment",
     desc: "被非法解雇、拖欠工资、职场骚扰，劳工法投诉有严格时效，务必尽早寻求法律建议。",
     urgency: "HIGH",
-    href: "/case/new?category=LABOR",
+    href: "/case/new?category=LABOR&urgency=HIGH",
     color: "border-orange-300 bg-orange-50",
     badge: "bg-orange-500 text-white",
   },
@@ -80,7 +80,7 @@ const EMERGENCY_CATEGORIES = [
     en: "Fraud Recovery & Asset Recovery",
     desc: "投资诈骗、网络骗局、被骗资金追回，时间越短追回成功率越高。",
     urgency: "HIGH",
-    href: "/case/new?category=CIVIL",
+    href: "/case/new?category=CIVIL&urgency=HIGH",
     color: "border-orange-300 bg-orange-50",
     badge: "bg-orange-500 text-white",
   },
@@ -142,7 +142,7 @@ export default function EmergencyPage() {
 
           <div className="mt-10">
             <Link
-              href="/case/new"
+              href="/case/new?urgency=URGENT"
               className="inline-flex items-center gap-3 bg-rose-600 hover:bg-rose-500 text-white font-bold px-8 py-4 rounded-xl transition-all text-lg shadow-lg shadow-rose-900/40"
             >
               <span className="text-xl">🚨</span>
@@ -299,7 +299,7 @@ export default function EmergencyPage() {
           </p>
           <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center">
             <Link
-              href="/case/new"
+              href="/case/new?urgency=URGENT"
               className="inline-flex items-center gap-2 bg-white hover:bg-rose-50 text-rose-700 font-bold px-6 py-3 rounded-xl transition-colors text-base"
             >
               🚨 立即发布紧急案件
