@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { NavBar } from "@/components/ui/nav-bar";
@@ -9,6 +9,10 @@ import { AdminTabs } from "@/components/admin/admin-tabs";
 type FinanceOrder = any;
 
 export default function AdminFinanceOpsPage() {
+  return (<Suspense fallback={<div className="p-8 text-center text-sm text-slate-500">加载中...</div>}><AdminFinanceOpsInner /></Suspense>);
+}
+
+function AdminFinanceOpsInner() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();

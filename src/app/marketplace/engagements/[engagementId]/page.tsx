@@ -28,7 +28,14 @@ type EngagementDetail = {
   attorneyConflictCheckedAt: string | null;
   attorneyConfirmedAt: string | null;
   clientConfirmedAt: string | null;
+  completionStatus: string;
+  completionRequestedAt: string | null;
+  completionAutoAt: string | null;
+  completionConfirmedAt: string | null;
+  completionNote: string | null;
   case: { title: string; stateCode: string };
+  _count?: { serviceStages: number };
+  serviceStages?: Array<{ id: string; title: string; status: string }>;
 };
 
 type Payload = {
@@ -161,6 +168,28 @@ export default function EngagementPage() {
       return;
     }
     setMsg("客户评价已提交，已用于律师信用评分与公开档案展示。");
+    await load();
+  };
+
+  const viewerRole = data?.viewer.role === "ATTORNEY" ? "attorney" : data?.viewer.role === "CLIENT" ? "client" : "admin";
+  const eng = data?.engagement;
+
+  const handleAction = async (action: string) => {
+    setSaving(true);
+    setMsg(null);
+    setError(null);
+    const r = await fetch(`/api/marketplace/engagements/${engagementId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    const j = await r.json().catch(() => ({}));
+    setSaving(false);
+    if (!r.ok) {
+      setError(j.error || "操作失败");
+      return;
+    }
+    setMsg(action === "request_completion" ? "已提交完成确认" : action === "confirm_completion" ? "已确认完成" : "已提交争议");
     await load();
   };
 
@@ -331,6 +360,60 @@ export default function EngagementPage() {
                   )}
                 </div>
               </section>
+
+              {/* Service Progress & Completion */}
+              {eng?.status === "ACTIVE" && (
+                <div className="mt-6 rounded-lg border p-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold">服务进度</h3>
+                    <Link href={`/marketplace/engagements/${engagementId}/progress`} className="text-sm text-blue-600 hover:underline">查看详情 &rarr;</Link>
+                  </div>
+                  {(eng._count?.serviceStages ?? 0) > 0 ? (
+                    <div className="mt-3">
+                      <div className="mb-1 text-sm text-gray-500">完成 {eng.serviceStages?.filter(s => s.status === "COMPLETED").length || 0}/{eng._count!.serviceStages} 阶段</div>
+                      <div className="h-2 w-full rounded-full bg-gray-200">
+                        <div className="h-full rounded-full bg-blue-600" style={{ width: `${eng._count!.serviceStages > 0 ? Math.round(((eng.serviceStages?.filter(s => s.status === "COMPLETED").length || 0) / eng._count!.serviceStages) * 100) : 0}%` }} />
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-sm text-gray-400">尚未初始化服务阶段</p>
+                  )}
+
+                  {/* Completion Actions */}
+                  {eng.completionStatus === "NONE" && viewerRole === "attorney" && (
+                    <div className="mt-4 border-t pt-4">
+                      <button onClick={() => handleAction("request_completion")} disabled={saving} className="rounded-lg bg-green-600 px-4 py-2 text-sm text-white hover:bg-green-700 disabled:opacity-50">提交完成确认</button>
+                    </div>
+                  )}
+                  {eng.completionStatus === "REQUESTED_BY_ATTORNEY" && viewerRole === "client" && (
+                    <div className="mt-4 border-t pt-4 space-y-2">
+                      <p className="text-sm text-yellow-700">律师已提交完成确认，请确认服务是否已完成</p>
+                      {eng.completionAutoAt && <p className="text-xs text-gray-400">逾期自动确认: {new Date(eng.completionAutoAt).toLocaleString("zh-CN")}</p>}
+                      <div className="flex gap-2">
+                        <button onClick={() => handleAction("confirm_completion")} disabled={saving} className="rounded-lg bg-green-600 px-4 py-2 text-sm text-white hover:bg-green-700 disabled:opacity-50">确认完成</button>
+                        <button onClick={() => handleAction("dispute_completion")} disabled={saving} className="rounded-lg bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-50">提出争议</button>
+                      </div>
+                    </div>
+                  )}
+                  {eng.completionStatus === "REQUESTED_BY_ATTORNEY" && viewerRole === "attorney" && (
+                    <div className="mt-4 border-t pt-4">
+                      <p className="text-sm text-yellow-600">等待客户确认中...</p>
+                      {eng.completionAutoAt && <p className="text-xs text-gray-400">自动完成: {new Date(eng.completionAutoAt).toLocaleString("zh-CN")}</p>}
+                    </div>
+                  )}
+                  {(eng.completionStatus === "CONFIRMED_BY_CLIENT" || eng.completionStatus === "AUTO_COMPLETED") && (
+                    <div className="mt-4 border-t pt-4">
+                      <p className="text-sm text-green-700 font-medium">服务已完成 {eng.completionStatus === "AUTO_COMPLETED" ? "(自动确认)" : ""}</p>
+                      <Link href={`/marketplace/engagements/${engagementId}/summary`} className="mt-1 text-xs text-blue-600 hover:underline">查看结案总结</Link>
+                    </div>
+                  )}
+                  {eng.completionStatus === "DISPUTED" && (
+                    <div className="mt-4 border-t pt-4">
+                      <p className="text-sm text-red-700">完成确认有争议，已转入调解流程</p>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <section className="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <h3 className="text-lg font-semibold text-slate-900">客户评价（委托完成后）</h3>

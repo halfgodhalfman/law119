@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { DEV_ACTORS, DEV_AUTH_COOKIE, ensureDevActor, getDevActorSeed, isDevAuthSwitchEnabled } from "@/lib/dev-auth-switch";

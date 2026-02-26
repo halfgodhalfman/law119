@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getSupabaseBrowserClient } from "../lib/supabase-browser";
 import { ProfessionalDisclaimerGate } from "./professional-disclaimer-gate";
 import {
@@ -19,6 +19,13 @@ type Message = {
   body: string;
   senderRole: "CLIENT" | "ATTORNEY" | "SYSTEM";
   createdAt: string;
+  attachments?: Array<{
+    id: string;
+    fileName: string | null;
+    url: string;
+    mimeType: string | null;
+    sizeBytes: number | null;
+  }>;
 };
 
 type ChatPayload = {
@@ -407,6 +414,9 @@ export function RealtimeChat({ conversationId, viewerRole }: Props) {
   const [reminderTitle, setReminderTitle] = useState("");
   const [reminderDueAt, setReminderDueAt] = useState("");
   const [checklistTitle, setChecklistTitle] = useState("");
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [uploadingFiles, setUploadingFiles] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const selfRole = useMemo(() => (viewerRole === "CLIENT" ? "CLIENT" : "ATTORNEY"), [viewerRole]);
@@ -499,16 +509,44 @@ export function RealtimeChat({ conversationId, viewerRole }: Props) {
     await loadWorkflow();
   };
 
+  const uploadFiles = useCallback(async (files: File[]): Promise<string[]> => {
+    const formData = new FormData();
+    files.forEach((f) => formData.append("files", f));
+    const res = await fetch(`/api/conversations/${conversationId}/chat-attachments`, {
+      method: "POST",
+      body: formData,
+    });
+    if (!res.ok) throw new Error("Upload failed");
+    const data = await res.json();
+    return data.attachments.map((a: { id: string }) => a.id);
+  }, [conversationId]);
+
   const sendMessage = async () => {
     if (!input.trim() || !payload?.disclaimer.viewerAccepted || payload?.safety?.canSendMessages === false || acceptingDisclaimer) return;
     setSending(true);
     setError(null);
+
+    let attachmentIds: string[] | undefined;
+    if (pendingFiles.length > 0) {
+      try {
+        setUploadingFiles(true);
+        attachmentIds = await uploadFiles(pendingFiles);
+      } catch {
+        setError("附件上传失败，请重试。");
+        setSending(false);
+        setUploadingFiles(false);
+        return;
+      } finally {
+        setUploadingFiles(false);
+      }
+    }
 
     const res = await fetch(`/api/conversations/${conversationId}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         body: input,
+        ...(attachmentIds && attachmentIds.length > 0 ? { attachmentIds } : {}),
       }),
     });
 
@@ -519,6 +557,7 @@ export function RealtimeChat({ conversationId, viewerRole }: Props) {
       return;
     }
     setInput("");
+    setPendingFiles([]);
   };
 
   const submitReport = async () => {
@@ -1004,6 +1043,21 @@ export function RealtimeChat({ conversationId, viewerRole }: Props) {
                       }`}
                     >
                       <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.body}</p>
+                      {message.attachments && message.attachments.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          {message.attachments.map((att) =>
+                            att.mimeType?.startsWith("image/") ? (
+                              <a key={att.id} href={att.url} target="_blank" rel="noopener noreferrer">
+                                <img src={att.url} alt={att.fileName || "image"} className="max-w-[240px] rounded-lg" loading="lazy" />
+                              </a>
+                            ) : (
+                              <a key={att.id} href={att.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 rounded-lg border px-3 py-2 text-xs hover:bg-gray-50">
+                                <span>&#128206;</span> {att.fileName || "file"} {att.sizeBytes ? `(${(att.sizeBytes / 1024).toFixed(1)} KB)` : ""}
+                              </a>
+                            ),
+                          )}
+                        </div>
+                      )}
                       <p className="mt-1 text-right text-[10px] text-slate-400">{formatTime(message.createdAt)}</p>
                       {isSelf && lastSelfReadMessageId === message.id && (
                         <p className="mt-0.5 text-right text-[10px] text-emerald-300">已读</p>
@@ -1067,6 +1121,16 @@ export function RealtimeChat({ conversationId, viewerRole }: Props) {
                   </span>
                 )}
               </div>
+              {pendingFiles.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-2 rounded-lg border border-slate-200 px-3 py-2">
+                  {pendingFiles.map((f, i) => (
+                    <div key={i} className="flex items-center gap-1 rounded bg-gray-100 px-2 py-1 text-xs">
+                      <span className="max-w-[120px] truncate">{f.name}</span>
+                      <button onClick={() => setPendingFiles(prev => prev.filter((_, j) => j !== i))} className="text-gray-400 hover:text-red-500">&times;</button>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="flex items-end gap-3">
                 <textarea
                   rows={2}
@@ -1085,14 +1149,34 @@ export function RealtimeChat({ conversationId, viewerRole }: Props) {
                         : "Please accept the disclaimer above to start messaging. / 请先接受免责声明。"
                   }
                 />
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  multiple
+                  accept="image/*,.pdf,.doc,.docx"
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files) setPendingFiles(prev => [...prev, ...Array.from(e.target.files!)]);
+                    e.currentTarget.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={!payload.disclaimer.viewerAccepted || sending || acceptingDisclaimer || payload.safety?.canSendMessages === false}
+                  className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl border border-slate-300 text-gray-500 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
+                  title="上传附件"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+                </button>
                 <button
                   type="button"
                   onClick={sendMessage}
-                  disabled={sending || acceptingDisclaimer || !input.trim() || !payload.disclaimer.viewerAccepted || payload.safety?.canSendMessages === false}
+                  disabled={sending || uploadingFiles || acceptingDisclaimer || !input.trim() || !payload.disclaimer.viewerAccepted || payload.safety?.canSendMessages === false}
                   className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
                   aria-label="Send message"
                 >
-                  {sending ? (
+                  {sending || uploadingFiles ? (
                     <SpinnerIcon className="h-5 w-5 animate-spin" />
                   ) : (
                     <PaperAirplaneIcon className="h-5 w-5" />

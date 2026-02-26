@@ -268,6 +268,40 @@ enum NotificationType {
   REPORT_UPDATE
   SUPPORT_TICKET_UPDATE
   SYSTEM_NOTICE
+  ENGAGEMENT_UPDATE
+  REVIEW_REMINDER
+}
+
+enum EngagementCompletionStatus {
+  NONE
+  REQUESTED_BY_ATTORNEY
+  CONFIRMED_BY_CLIENT
+  AUTO_COMPLETED
+  DISPUTED
+}
+
+enum ServiceStageStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+}
+
+enum RefundReason {
+  SERVICE_NOT_STARTED
+  SERVICE_INCOMPLETE
+  QUALITY_ISSUE
+  COMMUNICATION_ISSUE
+  OVERCHARGED
+  OTHER
+}
+
+enum MediationPhase {
+  DEFENSE_SUBMISSION
+  EVIDENCE_REVIEW
+  PROPOSAL
+  RESOLVED
+  CLOSED
 }
 
 enum SupportTicketStatus {
@@ -488,6 +522,7 @@ model AttorneyProfile {
   clientReviews      AttorneyClientReview[]
   showcaseCases      AttorneyCaseShowcase[]
   badges             AttorneyBadgeGrant[]
+  contractTemplates  ContractTemplate[]
   lastReviewedBy     User?      @relation("AttorneyLastReviewer", fields: [lastReviewedByUserId], references: [id], onDelete: SetNull)
 
   createdAt         DateTime   @default(now())
@@ -933,6 +968,7 @@ model Conversation {
   contentRuleEvents     ContentRuleEvent[]
   paymentOrders         PaymentOrder[]
   readStates            ConversationReadState[]
+  chatAttachments       ChatAttachment[]
 
   @@index([attorneyProfileId, status, createdAt])
   @@index([clientProfileId, status, createdAt])
@@ -948,6 +984,7 @@ model ChatMessage {
 
   conversation  Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender        User?          @relation(fields: [senderUserId], references: [id], onDelete: SetNull)
+  attachments   ChatAttachment[]
 
   @@index([conversationId, createdAt])
 }
@@ -1096,6 +1133,14 @@ model EngagementConfirmation {
   clientConfirmedAt        DateTime?
   confirmedByAttorneyUserId String?           @db.Uuid
   confirmedByClientUserId   String?           @db.Uuid
+  // Completion workflow
+  completionStatus             EngagementCompletionStatus @default(NONE)
+  completionRequestedAt        DateTime?
+  completionRequestedByUserId  String?        @db.Uuid
+  completionConfirmedAt        DateTime?
+  completionConfirmedByUserId  String?        @db.Uuid
+  completionAutoAt             DateTime?      // scheduled auto-complete timestamp
+  completionNote               String?
   createdAt                DateTime           @default(now())
   updatedAt                DateTime           @updatedAt
 
@@ -1108,11 +1153,13 @@ model EngagementConfirmation {
   confirmedByClient        User?              @relation("EngagementConfirmedByClient", fields: [confirmedByClientUserId], references: [id], onDelete: SetNull)
   paymentOrders            PaymentOrder[]
   attorneyClientReviews    AttorneyClientReview[]
+  serviceStages            ServiceStage[]
 
   @@unique([bidId])
   @@index([caseId, status])
   @@index([attorneyProfileId, status])
   @@index([clientProfileId, status])
+  @@index([completionStatus, completionAutoAt])
 }
 
 model ConversationTag {
@@ -1189,6 +1236,13 @@ model DisputeTicket {
   firstResponseAt   DateTime?
   resolvedAt        DateTime?
   closedAt          DateTime?
+  // Mediation workflow
+  mediationPhase        MediationPhase?
+  mediationStartedAt    DateTime?
+  defenseDeadlineAt     DateTime?
+  proposalSummary       String?
+  proposalAcceptedAt    DateTime?
+  mediationResolvedAt   DateTime?
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
 
@@ -1345,6 +1399,9 @@ model PaymentOrder {
   refundReviewedAt  DateTime?
   refundReviewedByUserId String?      @db.Uuid
   refundReviewNote  String?
+  refundReason      RefundReason?
+  refundDescription String?
+  refundEvidencePaths String[]        @default([])
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
@@ -1388,6 +1445,7 @@ model PaymentMilestone {
   paymentOrder   PaymentOrder         @relation(fields: [paymentOrderId], references: [id], onDelete: Cascade)
   events         PaymentEvent[]
   releaseReviewedBy User?             @relation("MilestoneReleaseReviewedBy", fields: [releaseReviewedByUserId], references: [id], onDelete: SetNull)
+  deliverables   MilestoneDeliverable[]
 
   @@index([paymentOrderId, sortOrder])
   @@index([status, createdAt])
@@ -1593,4 +1651,88 @@ model LegalNoticeVersion {
 
   @@index([noticeType, status, updatedAt])
   @@index([noticeType, effectiveAt])
+}
+
+// ─── Feature: Chat File Transfer ───────────────────────────────────────────────
+model ChatAttachment {
+  id             String       @id @default(cuid())
+  chatMessageId  String?
+  conversationId String
+  uploaderUserId String       @db.Uuid
+  fileName       String?
+  storagePath    String
+  url            String
+  mimeType       String?
+  sizeBytes      Int?
+  createdAt      DateTime     @default(now())
+
+  chatMessage    ChatMessage?  @relation(fields: [chatMessageId], references: [id], onDelete: SetNull)
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([chatMessageId])
+  @@index([conversationId, createdAt])
+}
+
+// ─── Feature: Service Progress Dashboard ───────────────────────────────────────
+model ServiceStage {
+  id               String             @id @default(cuid())
+  engagementId     String
+  sortOrder        Int                @default(0)
+  title            String
+  description      String?
+  status           ServiceStageStatus @default(NOT_STARTED)
+  startedAt        DateTime?
+  completedAt      DateTime?
+  updatedByUserId  String?            @db.Uuid
+  note             String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  engagement       EngagementConfirmation @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+
+  @@index([engagementId, sortOrder])
+  @@index([engagementId, status])
+}
+
+// ─── Feature: Contract Template Library ────────────────────────────────────────
+model ContractTemplate {
+  id                  String             @id @default(cuid())
+  attorneyProfileId   String
+  title               String
+  serviceBoundary     ServiceBoundaryType @default(CUSTOM)
+  serviceScopeSummary String
+  stagePlanJson       String?
+  feeMode             FeeMode            @default(CUSTOM)
+  feeAmountMin        Decimal?           @db.Decimal(10, 2)
+  feeAmountMax        Decimal?           @db.Decimal(10, 2)
+  includesConsultation     Boolean       @default(false)
+  includesCourtAppearance  Boolean       @default(false)
+  includesTranslation      Boolean       @default(false)
+  includesDocumentFiling   Boolean       @default(false)
+  isDefault           Boolean            @default(false)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  attorney            AttorneyProfile    @relation(fields: [attorneyProfileId], references: [id], onDelete: Cascade)
+
+  @@index([attorneyProfileId, createdAt])
+}
+
+// ─── Feature: Deliverable Confirmation ─────────────────────────────────────────
+model MilestoneDeliverable {
+  id             String            @id @default(cuid())
+  milestoneId    String
+  uploaderUserId String            @db.Uuid
+  fileName       String?
+  storagePath    String
+  url            String
+  mimeType       String?
+  sizeBytes      Int?
+  confirmedAt    DateTime?
+  confirmedByUserId String?        @db.Uuid
+  createdAt      DateTime          @default(now())
+
+  milestone      PaymentMilestone  @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+
+  @@index([milestoneId, createdAt])
 }

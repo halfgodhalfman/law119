@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { NavBar } from "@/components/ui/nav-bar";
 import { useMarketplaceAuth } from "@/lib/use-marketplace-auth";
 
@@ -33,6 +33,10 @@ type MyCasesResponse = {
 };
 
 export default function MyCasesPage() {
+  return (<Suspense fallback={<div className="p-8 text-center text-sm text-slate-500">加载中...</div>}><MyCasesInner /></Suspense>);
+}
+
+function MyCasesInner() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { Suspense, useEffect, useRef, useState, type ChangeEvent } from "react";
 import { NavBar } from "@/components/ui/nav-bar";
 import { useMarketplaceAuth } from "@/lib/use-marketplace-auth";
 
@@ -68,6 +68,10 @@ function isDeadlineSoon(input?: string | null) {
 }
 
 export default function CaseHallPage() {
+  return (<Suspense fallback={<div className="p-8 text-center text-sm text-slate-500">加载中...</div>}><CaseHallInner /></Suspense>);
+}
+
+function CaseHallInner() {
   const RECOMMEND_PREF_KEY = "law119:casehall:recommended-filter-presets:v2";
   const router = useRouter();
   const pathname = usePathname();

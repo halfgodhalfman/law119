@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "../../../../../lib/prisma";
@@ -14,6 +15,7 @@ import { createUserNotification } from "../../../../../lib/user-notifications";
 
 const messageSchema = z.object({
   body: z.string().trim().min(1).max(2000),
+  attachmentIds: z.array(z.string()).max(5).optional(),
 });
 
 type RouteParams = {
@@ -51,7 +53,15 @@ export async function GET(request: Request, { params }: RouteParams) {
         attorney: { select: { userId: true, firstName: true, lastName: true } },
         messages: {
           orderBy: { createdAt: "asc" },
-          select: { id: true, body: true, senderRole: true, createdAt: true },
+          select: {
+            id: true,
+            body: true,
+            senderRole: true,
+            createdAt: true,
+            attachments: {
+              select: { id: true, fileName: true, url: true, mimeType: true, sizeBytes: true },
+            },
+          },
         },
         disclaimerAcceptances: {
           select: { userId: true, role: true, acceptedAt: true },
@@ -238,6 +248,20 @@ export async function POST(request: Request, { params }: RouteParams) {
       },
       select: { id: true, createdAt: true },
     });
+
+    // Link chat attachments to the newly created message
+    if (parsed.data.attachmentIds && parsed.data.attachmentIds.length > 0) {
+      await prisma.chatAttachment.updateMany({
+        where: {
+          id: { in: parsed.data.attachmentIds },
+          conversationId,
+          uploaderUserId: auth.authUserId,
+          chatMessageId: null,
+        },
+        data: { chatMessageId: message.id },
+      });
+    }
+
     await prisma.conversationReadState.upsert({
       where: { conversationId_userId: { conversationId, userId: auth.authUserId } },
       update: {

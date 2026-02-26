@@ -1,7 +1,10 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAuthContext } from "@/lib/auth-context";
 import { prisma } from "@/lib/prisma";
+import { checkAutoCompletion } from "@/lib/engagement-completion";
+import { createUserNotification } from "@/lib/user-notifications";
 
 const patchSchema = z.object({
   serviceBoundary: z.enum(["CONSULTATION", "DOCUMENT_PREP", "COURT_APPEARANCE", "FULL_REPRESENTATION", "CUSTOM"]).optional(),
@@ -20,6 +23,8 @@ const patchSchema = z.object({
   attorneyConflictCheckNote: z.string().trim().max(2000).optional().nullable(),
   conflictPartiesText: z.string().trim().max(1000).optional().nullable(), // UI-only note for metadata logging; not persisted
   confirmAs: z.enum(["CLIENT", "ATTORNEY"]).optional(),
+  action: z.enum(["request_completion", "confirm_completion", "dispute_completion"]).optional(),
+  completionNote: z.string().trim().max(2000).optional().nullable(),
 });
 
 function toDecimalInput(value: string | number | null | undefined) {
@@ -34,6 +39,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ eng
     const auth = await requireAuthContext().catch(() => null);
     if (!auth) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const { engagementId } = await params;
+
+    // Check if auto-completion should trigger
+    await checkAutoCompletion(engagementId).catch(() => null);
 
     const item = await prisma.engagementConfirmation.findUnique({
       where: { id: engagementId },
@@ -62,6 +70,11 @@ export async function GET(_request: Request, { params }: { params: Promise<{ eng
         attorneyConflictCheckedAt: true,
         attorneyConfirmedAt: true,
         clientConfirmedAt: true,
+        completionStatus: true,
+        completionRequestedAt: true,
+        completionAutoAt: true,
+        completionConfirmedAt: true,
+        completionNote: true,
         createdAt: true,
         updatedAt: true,
         case: { select: { title: true, stateCode: true, selectedBidId: true } },
@@ -82,8 +95,11 @@ export async function GET(_request: Request, { params }: { params: Promise<{ eng
             createdAt: true,
           },
         },
-        attorney: { select: { id: true, barState: true, isVerified: true, serviceAreas: { select: { stateCode: true } } } },
+        attorney: { select: { id: true, userId: true, barState: true, isVerified: true, serviceAreas: { select: { stateCode: true } } } },
+        client: { select: { userId: true } },
         conversation: { select: { status: true } },
+        serviceStages: { select: { id: true, title: true, status: true }, orderBy: { sortOrder: "asc" } },
+        _count: { select: { serviceStages: true } },
       },
     });
     if (!item) return NextResponse.json({ error: "Engagement not found." }, { status: 404 });
@@ -152,23 +168,89 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ en
     const auth = await requireAuthContext().catch(() => null);
     if (!auth) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const { engagementId } = await params;
-    const parsed = patchSchema.safeParse(await request.json().catch(() => ({})));
+    const body = await request.json().catch(() => ({}));
+    const parsed = patchSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
     }
 
-    const existing = await prisma.engagementConfirmation.findUnique({
+    const eng = await prisma.engagementConfirmation.findUnique({
       where: { id: engagementId },
-      select: { id: true, status: true, clientProfileId: true, attorneyProfileId: true, attorneyConfirmedAt: true, clientConfirmedAt: true },
+      select: {
+        id: true, status: true, caseId: true, bidId: true, conversationId: true,
+        clientProfileId: true, attorneyProfileId: true,
+        attorneyConfirmedAt: true, clientConfirmedAt: true,
+        completionStatus: true,
+        client: { select: { userId: true } },
+        attorney: { select: { userId: true } },
+        case: { select: { title: true } },
+      },
     });
-    if (!existing) return NextResponse.json({ error: "Engagement not found." }, { status: 404 });
+    if (!eng) return NextResponse.json({ error: "Engagement not found." }, { status: 404 });
 
-    const isClient = auth.role === "CLIENT" && auth.clientProfileId && existing.clientProfileId === auth.clientProfileId;
-    const isAttorney = auth.role === "ATTORNEY" && auth.attorneyProfileId && existing.attorneyProfileId === auth.attorneyProfileId;
+    const isClient = auth.role === "CLIENT" && auth.clientProfileId && eng.clientProfileId === auth.clientProfileId;
+    const isAttorney = auth.role === "ATTORNEY" && auth.attorneyProfileId && eng.attorneyProfileId === auth.attorneyProfileId;
     const isAdmin = auth.role === "ADMIN";
+    const viewerRole = isAttorney ? "attorney" : isClient ? "client" : isAdmin ? "admin" : null;
     if (!isClient && !isAttorney && !isAdmin) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
 
     const data = parsed.data;
+    const { action } = data;
+    const authUserId = auth.authUserId;
+
+    // ── Completion actions ──────────────────────────────────────────────────
+
+    if (action === "request_completion") {
+      if (viewerRole !== "attorney") return NextResponse.json({ error: "Only attorney can request completion" }, { status: 403 });
+      if (eng.status !== "ACTIVE") return NextResponse.json({ error: "Engagement must be active" }, { status: 409 });
+      if (eng.completionStatus !== "NONE") return NextResponse.json({ error: "Completion already requested" }, { status: 409 });
+
+      const autoAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+      const updated = await prisma.engagementConfirmation.update({
+        where: { id: engagementId },
+        data: { completionStatus: "REQUESTED_BY_ATTORNEY", completionRequestedAt: new Date(), completionRequestedByUserId: authUserId, completionAutoAt: autoAt, completionNote: body?.completionNote || null },
+      });
+
+      // Notify client
+      if (eng.client?.userId) {
+        await createUserNotification({ userId: eng.client.userId, type: "ENGAGEMENT_UPDATE", title: "律师已提交服务完成确认", body: "请在 7 天内确认服务已完成，逾期将自动确认。", linkUrl: `/marketplace/engagements/${engagementId}` }).catch(() => null);
+      }
+      return NextResponse.json({ ok: true, data: updated });
+    }
+
+    if (action === "confirm_completion") {
+      if (viewerRole !== "client") return NextResponse.json({ error: "Only client can confirm" }, { status: 403 });
+      if (eng.completionStatus !== "REQUESTED_BY_ATTORNEY") return NextResponse.json({ error: "No pending completion request" }, { status: 409 });
+
+      const updated = await prisma.engagementConfirmation.update({
+        where: { id: engagementId },
+        data: { completionStatus: "CONFIRMED_BY_CLIENT", completionConfirmedAt: new Date(), completionConfirmedByUserId: authUserId },
+      });
+
+      // Notify attorney
+      if (eng.attorney?.userId) {
+        await createUserNotification({ userId: eng.attorney.userId, type: "ENGAGEMENT_UPDATE", title: "客户已确认服务完成", linkUrl: `/marketplace/engagements/${engagementId}` }).catch(() => null);
+      }
+      // Send review reminder to client
+      if (eng.client?.userId) {
+        await createUserNotification({ userId: eng.client.userId, type: "REVIEW_REMINDER", title: "请对律师服务进行评价", body: "您的委托已完成，请花 1 分钟为律师的服务进行评价。", linkUrl: `/marketplace/engagements/${engagementId}` }).catch(() => null);
+      }
+      return NextResponse.json({ ok: true, data: updated });
+    }
+
+    if (action === "dispute_completion") {
+      if (viewerRole !== "client") return NextResponse.json({ error: "Only client can dispute" }, { status: 403 });
+      if (eng.completionStatus !== "REQUESTED_BY_ATTORNEY") return NextResponse.json({ error: "No pending completion request" }, { status: 409 });
+
+      await prisma.$transaction([
+        prisma.engagementConfirmation.update({ where: { id: engagementId }, data: { completionStatus: "DISPUTED" } }),
+        prisma.disputeTicket.create({ data: { caseId: eng.caseId, bidId: eng.bidId, conversationId: eng.conversationId, clientProfileId: eng.clientProfileId, attorneyProfileId: eng.attorneyProfileId, createdByUserId: authUserId, category: "completion_dispute", title: `服务完成争议 - ${eng.case?.title || engagementId}`, description: body?.completionNote || "客户对服务完成状态有争议", priority: "HIGH" } }),
+      ]);
+      return NextResponse.json({ ok: true });
+    }
+
+    // ── Original field-update / confirm logic ───────────────────────────────
+
     const updateData: Record<string, unknown> = {};
 
     if (data.serviceBoundary) updateData.serviceBoundary = data.serviceBoundary;
@@ -204,13 +286,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ en
       }
       updateData.attorneyConfirmedAt = new Date();
       updateData.confirmedByAttorneyUserId = auth.authUserId;
-      nextStatus = existing.clientConfirmedAt ? "ACTIVE" : "PENDING_CLIENT";
+      nextStatus = eng.clientConfirmedAt ? "ACTIVE" : "PENDING_CLIENT";
     }
     if (data.confirmAs === "CLIENT") {
       if (!isClient && !isAdmin) return NextResponse.json({ error: "Only client can confirm client side." }, { status: 403 });
       updateData.clientConfirmedAt = new Date();
       updateData.confirmedByClientUserId = auth.authUserId;
-      nextStatus = existing.attorneyConfirmedAt ? "ACTIVE" : "PENDING_ATTORNEY";
+      nextStatus = eng.attorneyConfirmedAt ? "ACTIVE" : "PENDING_ATTORNEY";
     }
     if (nextStatus) updateData.status = nextStatus;
 

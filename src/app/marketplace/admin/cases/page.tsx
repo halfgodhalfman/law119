@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { NavBar } from "@/components/ui/nav-bar";
 import { useMarketplaceAuth } from "@/lib/use-marketplace-auth";
 import { AdminTabs } from "@/components/admin/admin-tabs";
@@ -66,6 +66,10 @@ type AdminCasesResponse = {
 };
 
 export default function AdminCasesPage() {
+  return (<Suspense fallback={<div className="p-8 text-center text-sm text-slate-500">加载中...</div>}><AdminCasesInner /></Suspense>);
+}
+
+function AdminCasesInner() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
