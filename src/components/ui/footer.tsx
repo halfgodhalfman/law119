@@ -5,7 +5,7 @@ export function Footer() {
   return (
     <footer className="bg-slate-900 border-t border-slate-800">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 mb-10">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-8 mb-10">
           {/* Brand */}
           <div className="sm:col-span-2 lg:col-span-1">
             <div className="flex items-center gap-2.5 mb-4">
@@ -86,6 +86,11 @@ export function Footer() {
                   律师工作台
                 </Link>
               </li>
+              <li>
+                <Link href="/attorney/verification" className="text-slate-400 hover:text-white text-sm transition-colors">
+                  执照认证
+                </Link>
+              </li>
             </ul>
           </div>
 
@@ -108,6 +113,46 @@ export function Footer() {
               </li>
               <li>
                 <Link href="/legal/attorney-terms" className="text-slate-400 hover:text-white text-sm transition-colors">律师职业道德声明</Link>
+              </li>
+            </ul>
+          </div>
+
+          {/* Contact */}
+          <div>
+            <h3 className="text-white text-sm font-semibold mb-4 uppercase tracking-wide">
+              联系我们
+            </h3>
+            <ul className="space-y-3">
+              <li className="flex items-start gap-2">
+                <span className="text-slate-400 mt-0.5 flex-shrink-0">📧</span>
+                <div>
+                  <a href="mailto:support@law119.com" className="text-slate-400 hover:text-white text-sm transition-colors">
+                    support@law119.com
+                  </a>
+                  <p className="text-slate-600 text-xs mt-0.5">客服邮件 / General Support</p>
+                </div>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-slate-400 mt-0.5 flex-shrink-0">💬</span>
+                <div>
+                  <p className="text-slate-400 text-sm">微信: law119official</p>
+                  <p className="text-slate-600 text-xs mt-0.5">周一至周五 9AM – 6PM PST</p>
+                </div>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-slate-400 mt-0.5 flex-shrink-0">🚨</span>
+                <div>
+                  <p className="text-slate-500 text-xs leading-5">
+                    紧急事务请在邮件主题注明{" "}
+                    <span className="text-rose-400 font-semibold">URGENT</span>
+                    {" "}优先响应
+                  </p>
+                </div>
+              </li>
+              <li className="pt-1">
+                <Link href="/attorneys" className="text-slate-400 hover:text-white text-sm transition-colors">
+                  律师目录 →
+                </Link>
               </li>
             </ul>
           </div>
