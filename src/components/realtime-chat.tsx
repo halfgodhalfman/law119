@@ -386,11 +386,32 @@ function WorkflowSidebarContent({
   );
 }
 
+const CUSTOM_QUICK_REPLY_KEY = "law119_attorney_custom_quick_replies_v1";
+
+type CustomQuickReply = { id: string; label: string; text: string };
+
+function loadCustomReplies(): CustomQuickReply[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(CUSTOM_QUICK_REPLY_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+
+function saveCustomReplies(items: CustomQuickReply[]) {
+  try { window.localStorage.setItem(CUSTOM_QUICK_REPLY_KEY, JSON.stringify(items)); } catch {}
+}
+
 export function RealtimeChat({ conversationId, viewerRole }: Props) {
   const [payload, setPayload] = useState<ChatPayload | null>(null);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Item 7: custom quick reply templates
+  const [customReplies, setCustomReplies] = useState<CustomQuickReply[]>([]);
+  const [showSaveTemplate, setShowSaveTemplate] = useState(false);
+  const [newTemplateLabel, setNewTemplateLabel] = useState("");
   // ── Voice recording state ────────────────────────────────────────────────
   const [isRecording, setIsRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
@@ -544,6 +565,11 @@ export function RealtimeChat({ conversationId, viewerRole }: Props) {
   // ── MediaRecorder availability (browser-only check) ──────────────────────
   useEffect(() => {
     setHasMediaRecorder(typeof window !== "undefined" && "MediaRecorder" in window);
+  }, []);
+
+  // Item 7: Load custom quick reply templates from localStorage
+  useEffect(() => {
+    setCustomReplies(loadCustomReplies());
   }, []);
 
   // ── Voice recording helpers ───────────────────────────────────────────────
@@ -1191,7 +1217,72 @@ export function RealtimeChat({ conversationId, viewerRole }: Props) {
                         {tpl.label}
                       </button>
                     ))}
+                    {/* Item 7: custom quick reply templates */}
+                    {customReplies.map((tpl) => (
+                      <span key={tpl.id} className="inline-flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => applyQuickReply(tpl.text)}
+                          className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-[11px] text-amber-800 hover:bg-amber-100"
+                        >
+                          ✦ {tpl.label}
+                        </button>
+                        <button
+                          type="button"
+                          title="删除此模板"
+                          onClick={() => {
+                            const updated = customReplies.filter((r) => r.id !== tpl.id);
+                            setCustomReplies(updated);
+                            saveCustomReplies(updated);
+                          }}
+                          className="text-[10px] text-slate-400 hover:text-rose-500"
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => { setShowSaveTemplate((v) => !v); setNewTemplateLabel(""); }}
+                      className="rounded-full border border-dashed border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-500 hover:bg-slate-50"
+                      title="将当前输入框内容保存为模板"
+                    >
+                      + 保存为模板
+                    </button>
                   </div>
+                  {showSaveTemplate && (
+                    <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                      <input
+                        className="flex-1 min-w-[120px] rounded border border-amber-300 bg-white px-2 py-1 text-xs text-slate-800 focus:outline-none"
+                        placeholder="模板名称（如：补件请求）"
+                        value={newTemplateLabel}
+                        onChange={(e) => setNewTemplateLabel(e.target.value)}
+                        maxLength={20}
+                      />
+                      <button
+                        type="button"
+                        disabled={!newTemplateLabel.trim() || !input.trim()}
+                        onClick={() => {
+                          const newItem: CustomQuickReply = { id: Date.now().toString(), label: newTemplateLabel.trim(), text: input.trim() };
+                          const updated = [...customReplies, newItem];
+                          setCustomReplies(updated);
+                          saveCustomReplies(updated);
+                          setShowSaveTemplate(false);
+                          setNewTemplateLabel("");
+                        }}
+                        className="rounded-full bg-amber-600 px-3 py-1 text-[11px] text-white hover:bg-amber-500 disabled:opacity-50"
+                      >
+                        保存
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowSaveTemplate(false)}
+                        className="text-[11px] text-slate-500 hover:text-slate-700"
+                      >
+                        取消
+                      </button>
+                    </div>
+                  )}
                 </>
               )}
               <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">

@@ -23,6 +23,11 @@ export async function GET() {
           quoteDeadline: true,
           updatedAt: true,
           _count: { select: { bids: true, conversations: true } },
+          engagementConfirmations: {
+            orderBy: { updatedAt: "desc" },
+            take: 1,
+            select: { id: true, status: true },
+          },
         },
       }),
       prisma.conversation.findMany({
@@ -100,7 +105,9 @@ export async function GET() {
               ? "in_progress"
               : "pending_select";
       const quoteDeadlinePassed = c.quoteDeadline ? new Date(c.quoteDeadline).getTime() < now : false;
-      return { ...c, lifecycle, quoteDeadlinePassed };
+      const engagementSummary = c.engagementConfirmations[0] ?? null;
+      const { engagementConfirmations: _ec, ...rest } = c;
+      return { ...rest, lifecycle, quoteDeadlinePassed, engagementSummary };
     });
 
     const convCards = conversations.map((c) => {

@@ -1,12 +1,19 @@
  "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ScalesIcon } from "./icons";
+
+type DevActor = { key: "client" | "attorney" | "admin"; role: string; label: string };
 
 export function NavBar() {
   const [unreadCount, setUnreadCount] = useState<number | null>(null);
   const [viewerRole, setViewerRole] = useState<"CLIENT" | "ATTORNEY" | "ADMIN" | null>(null);
+  const [devCurrent, setDevCurrent] = useState<DevActor | null>(null);
+  const [devActors, setDevActors] = useState<DevActor[]>([]);
+  const [devOpen, setDevOpen] = useState(false);
+  const [devSwitching, setDevSwitching] = useState(false);
+  const devRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -27,12 +34,54 @@ export function NavBar() {
       setUnreadCount(j.summary?.unreadCount ?? 0);
     };
     void load();
-    const timer = window.setInterval(() => { void load(); }, 30000);
+    const timer = window.setInterval(() => { void load(); }, 10000);
     return () => {
       mounted = false;
       window.clearInterval(timer);
     };
   }, []);
+
+  // Load dev actors (only in non-production)
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    let mounted = true;
+    fetch("/api/dev/auth-switch", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (!mounted) return;
+        if (j.enabled) {
+          setDevCurrent(j.current ?? null);
+          setDevActors(j.actors ?? []);
+        }
+      })
+      .catch(() => {});
+    return () => { mounted = false; };
+  }, []);
+
+  // Close dev dropdown on outside click
+  useEffect(() => {
+    if (!devOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (devRef.current && !devRef.current.contains(e.target as Node)) setDevOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [devOpen]);
+
+  const switchDevActor = async (key: "client" | "attorney" | "admin") => {
+    setDevSwitching(true);
+    try {
+      await fetch("/api/dev/auth-switch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actor: key }),
+      });
+      // Reload the page so role state updates everywhere
+      window.location.reload();
+    } catch {
+      setDevSwitching(false);
+    }
+  };
 
   const primaryCta =
     viewerRole === "ATTORNEY"
@@ -133,13 +182,37 @@ export function NavBar() {
                 后台登录
               </Link>
             )}
-            {process.env.NODE_ENV !== "production" && (
-              <Link
-                href="/dev/quick-login"
-                className="text-emerald-300 hover:text-emerald-200 text-sm font-medium transition-colors px-3 py-2 rounded-lg hover:bg-slate-800"
-              >
-                Dev 切换
-              </Link>
+            {process.env.NODE_ENV !== "production" && devActors.length > 0 && (
+              <div className="relative" ref={devRef}>
+                <button
+                  type="button"
+                  onClick={() => setDevOpen((o) => !o)}
+                  className="flex items-center gap-1.5 text-emerald-300 hover:text-emerald-200 text-sm font-medium transition-colors px-3 py-2 rounded-lg hover:bg-slate-800"
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                  {devCurrent ? devCurrent.role : "Dev"}
+                  <span className="text-xs opacity-70">▾</span>
+                </button>
+                {devOpen && (
+                  <div className="absolute right-0 top-full mt-1 z-50 w-44 rounded-xl border border-slate-700 bg-slate-800 shadow-xl py-1">
+                    {devActors.map((a) => (
+                      <button
+                        key={a.key}
+                        type="button"
+                        disabled={devSwitching}
+                        onClick={() => { setDevOpen(false); void switchDevActor(a.key); }}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-700 transition-colors ${devCurrent?.key === a.key ? "text-emerald-300 font-semibold" : "text-slate-300"}`}
+                      >
+                        {devCurrent?.key === a.key ? "✓ " : ""}{a.role} ({a.label.split(" ")[0]})
+                      </button>
+                    ))}
+                    <div className="my-1 border-t border-slate-700" />
+                    <Link href="/dev/quick-login" onClick={() => setDevOpen(false)} className="block px-3 py-2 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700">
+                      Dev 切换页 →
+                    </Link>
+                  </div>
+                )}
+              </div>
             )}
           </div>
 
@@ -166,12 +239,13 @@ export function NavBar() {
             >
               后台
             </Link>
-            {process.env.NODE_ENV !== "production" && (
+            {process.env.NODE_ENV !== "production" && devActors.length > 0 && (
               <Link
                 href="/dev/quick-login"
-                className="hidden lg:block text-emerald-300 hover:text-emerald-200 text-xs font-medium transition-colors px-2 py-1.5 rounded-md border border-emerald-800 hover:border-emerald-600"
+                className="hidden lg:flex items-center gap-1 text-emerald-300 hover:text-emerald-200 text-xs font-medium transition-colors px-2 py-1.5 rounded-md border border-emerald-800 hover:border-emerald-600"
               >
-                Dev
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                {devCurrent ? devCurrent.role : "Dev"}
               </Link>
             )}
             <Link

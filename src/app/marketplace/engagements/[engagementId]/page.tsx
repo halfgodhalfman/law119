@@ -90,6 +90,16 @@ export default function EngagementPage() {
     wouldRecommend: true,
     comment: "",
   });
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [paymentForm, setPaymentForm] = useState({
+    title: "",
+    amountTotal: "",
+    currency: "USD",
+    milestones: [{ title: "", deliverable: "", amount: "", targetDate: "" }],
+  });
+  const [paymentSaving, setPaymentSaving] = useState(false);
+  const [paymentMsg, setPaymentMsg] = useState<string | null>(null);
+  const [existingPaymentId, setExistingPaymentId] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -102,6 +112,13 @@ export default function EngagementPage() {
       return;
     }
     setData(j);
+    // Check for existing payment orders for this engagement
+    const pr = await fetch(`/api/marketplace/payments?engagementId=${engagementId}`, { cache: "no-store" }).catch(() => null);
+    if (pr?.ok) {
+      const pj = await pr.json().catch(() => ({}));
+      const items: Array<{ id: string }> = pj.items ?? [];
+      setExistingPaymentId(items[0]?.id ?? null);
+    }
     setForm({
       serviceBoundary: j.engagement.serviceBoundary,
       serviceScopeSummary: j.engagement.serviceScopeSummary ?? "",
@@ -193,6 +210,42 @@ export default function EngagementPage() {
     await load();
   };
 
+  const milestoneTotal = paymentForm.milestones.reduce((s, m) => s + (Number(m.amount) || 0), 0);
+  const totalMismatch = paymentForm.amountTotal !== "" && Math.abs(milestoneTotal - Number(paymentForm.amountTotal)) > 0.01;
+
+  const submitPaymentOrder = async () => {
+    setPaymentSaving(true);
+    setPaymentMsg(null);
+    const body = {
+      engagementId,
+      title: paymentForm.title,
+      currency: paymentForm.currency,
+      amountTotal: Number(paymentForm.amountTotal),
+      milestones: paymentForm.milestones
+        .filter((m) => m.title && m.deliverable && m.amount)
+        .map((m) => ({
+          title: m.title,
+          deliverable: m.deliverable,
+          amount: Number(m.amount),
+          ...(m.targetDate ? { targetDate: new Date(m.targetDate).toISOString() } : {}),
+        })),
+    };
+    const r = await fetch("/api/marketplace/payments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json().catch(() => ({}));
+    setPaymentSaving(false);
+    if (!r.ok) {
+      setPaymentMsg(`创建失败：${j.error || "Unknown error"}`);
+      return;
+    }
+    setPaymentMsg(`支付单已创建！`);
+    setShowPaymentForm(false);
+    await load();
+  };
+
   const hintColor =
     data?.complianceHints.statePracticeMatchLevel === "MATCH"
       ? "bg-emerald-50 border-emerald-200 text-emerald-800"
@@ -234,7 +287,7 @@ export default function EngagementPage() {
                 <div className={`mt-3 rounded-lg border p-3 text-sm ${hintColor}`}>
                   <p className="font-semibold">执业地提示 / Practice-State Check</p>
                   <p className="mt-1">
-                    案件州：{data.complianceHints.caseStateCode} · 律师执照州：{data.complianceHints.attorneyBarState ?? "未填"} · 服务州：{data.complianceHints.attorneyPracticeStates.join(", ") || "未填"}
+                    案件州：{data.complianceHints.caseStateCode} · 律师执照州：{data.complianceHints.attorneyBarState ?? "未填"} · 服务州：{[...new Set(data.complianceHints.attorneyPracticeStates)].join(", ") || "未填"}
                   </p>
                   <p className="mt-1">
                     匹配结果：{data.complianceHints.statePracticeMatchLevel === "MATCH" ? "匹配" : data.complianceHints.statePracticeMatchLevel === "CROSS_STATE" ? "跨州（需律师确认执业限制）" : "未知"}
@@ -413,6 +466,159 @@ export default function EngagementPage() {
                     </div>
                   )}
                 </div>
+              )}
+
+              {/* Item 5: Payment order creation UI for active engagements */}
+              {eng?.status === "ACTIVE" && (
+                <section className="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-lg font-semibold text-slate-900">支付托管单</h3>
+                      <p className="mt-1 text-sm text-slate-500">创建支付单后，客户完成付款，资金由平台托管，按里程碑释放给律师。</p>
+                    </div>
+                    {existingPaymentId ? (
+                      <Link href={`/marketplace/payments/${existingPaymentId}`} className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100">
+                        查看支付单 →
+                      </Link>
+                    ) : data?.viewer.role === "CLIENT" && (
+                      <button
+                        type="button"
+                        onClick={() => setShowPaymentForm((v) => !v)}
+                        className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-500"
+                      >
+                        {showPaymentForm ? "收起" : "创建支付单"}
+                      </button>
+                    )}
+                  </div>
+
+                  {paymentMsg && (
+                    <div className={`mt-3 rounded-lg border p-3 text-sm ${paymentMsg.startsWith("创建失败") ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+                      {paymentMsg}
+                      {!paymentMsg.startsWith("创建失败") && existingPaymentId && (
+                        <Link href={`/marketplace/payments/${existingPaymentId}`} className="ml-2 underline">
+                          立即查看 →
+                        </Link>
+                      )}
+                    </div>
+                  )}
+
+                  {showPaymentForm && !existingPaymentId && (
+                    <div className="mt-4 space-y-4">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <label className="text-sm">
+                          <span className="mb-1 block text-slate-700">支付单标题</span>
+                          <input
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                            value={paymentForm.title}
+                            onChange={(e) => setPaymentForm((f) => ({ ...f, title: e.target.value }))}
+                            placeholder="例：H1B签证代理服务费"
+                          />
+                        </label>
+                        <label className="text-sm">
+                          <span className="mb-1 block text-slate-700">总金额（USD）</span>
+                          <input
+                            type="number"
+                            min={1}
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                            value={paymentForm.amountTotal}
+                            onChange={(e) => setPaymentForm((f) => ({ ...f, amountTotal: e.target.value }))}
+                            placeholder="3500"
+                          />
+                        </label>
+                      </div>
+
+                      <div>
+                        <div className="mb-2 flex items-center justify-between">
+                          <span className="text-sm font-medium text-slate-700">
+                            里程碑明细
+                            {paymentForm.milestones.length > 0 && (
+                              <span className={`ml-2 text-xs ${totalMismatch ? "text-rose-600" : "text-emerald-600"}`}>
+                                合计 ${milestoneTotal.toFixed(2)}{totalMismatch ? " ≠ 总额" : " ✓"}
+                              </span>
+                            )}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setPaymentForm((f) => ({ ...f, milestones: [...f.milestones, { title: "", deliverable: "", amount: "", targetDate: "" }] }))}
+                            className="rounded-lg border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50"
+                          >
+                            + 添加里程碑
+                          </button>
+                        </div>
+                        <div className="space-y-3">
+                          {paymentForm.milestones.map((m, idx) => (
+                            <div key={idx} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                              <div className="mb-2 flex items-center justify-between">
+                                <span className="text-xs font-semibold text-slate-600">里程碑 {idx + 1}</span>
+                                {paymentForm.milestones.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPaymentForm((f) => ({ ...f, milestones: f.milestones.filter((_, i) => i !== idx) }))}
+                                    className="text-xs text-rose-600 hover:underline"
+                                  >
+                                    删除
+                                  </button>
+                                )}
+                              </div>
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <input
+                                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                  placeholder="阶段名称（如：文书准备）"
+                                  value={m.title}
+                                  onChange={(e) => setPaymentForm((f) => { const ms = [...f.milestones]; ms[idx] = { ...ms[idx], title: e.target.value }; return { ...f, milestones: ms }; })}
+                                />
+                                <input
+                                  type="number"
+                                  min={0.01}
+                                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                  placeholder="金额 USD"
+                                  value={m.amount}
+                                  onChange={(e) => setPaymentForm((f) => { const ms = [...f.milestones]; ms[idx] = { ...ms[idx], amount: e.target.value }; return { ...f, milestones: ms }; })}
+                                />
+                                <input
+                                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm md:col-span-2"
+                                  placeholder="交付物描述（如：递交I-129申请材料）"
+                                  value={m.deliverable}
+                                  onChange={(e) => setPaymentForm((f) => { const ms = [...f.milestones]; ms[idx] = { ...ms[idx], deliverable: e.target.value }; return { ...f, milestones: ms }; })}
+                                />
+                                <div className="md:col-span-2">
+                                  <label className="text-xs text-slate-500">预计完成日期（可选）</label>
+                                  <input
+                                    type="date"
+                                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                    value={m.targetDate}
+                                    onChange={(e) => setPaymentForm((f) => { const ms = [...f.milestones]; ms[idx] = { ...ms[idx], targetDate: e.target.value }; return { ...f, milestones: ms }; })}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={paymentSaving || !paymentForm.title || !paymentForm.amountTotal || totalMismatch}
+                          onClick={() => void submitPaymentOrder()}
+                          className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-500 disabled:opacity-50"
+                        >
+                          {paymentSaving ? "创建中..." : "确认创建支付单"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowPaymentForm(false)}
+                          className="rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50"
+                        >
+                          取消
+                        </button>
+                      </div>
+                      {totalMismatch && (
+                        <p className="text-xs text-rose-600">里程碑金额合计（${milestoneTotal.toFixed(2)}）必须等于总金额（${Number(paymentForm.amountTotal).toFixed(2)}）。</p>
+                      )}
+                    </div>
+                  )}
+                </section>
               )}
 
               <section className="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

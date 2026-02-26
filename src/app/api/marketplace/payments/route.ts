@@ -23,12 +23,14 @@ export async function GET(request: Request) {
     if (!auth) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const url = new URL(request.url);
     const status = (url.searchParams.get("status") ?? "").trim();
+    const engagementId = (url.searchParams.get("engagementId") ?? "").trim();
+    const engagementFilter = engagementId ? { engagementId } : {};
     const where =
       auth.role === "ADMIN"
-        ? { ...(status ? { status: status as never } : {}) }
+        ? { ...(status ? { status: status as never } : {}), ...engagementFilter }
         : auth.role === "CLIENT"
-          ? { clientProfileId: auth.clientProfileId ?? "__none__", ...(status ? { status: status as never } : {}) }
-          : { attorneyProfileId: auth.attorneyProfileId ?? "__none__", ...(status ? { status: status as never } : {}) };
+          ? { clientProfileId: auth.clientProfileId ?? "__none__", ...(status ? { status: status as never } : {}), ...engagementFilter }
+          : { attorneyProfileId: auth.attorneyProfileId ?? "__none__", ...(status ? { status: status as never } : {}), ...engagementFilter };
 
     const items = await prisma.paymentOrder.findMany({
       where,

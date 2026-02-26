@@ -285,17 +285,43 @@ export async function POST(request: Request, { params }: { params: Promise<{ pay
       }).catch(() => null);
     }
 
+    // Item 11: Build action-specific notification messages
+    const releasedMilestone = action === "release_milestone" && milestoneId
+      ? order.milestones.find((m) => m.id === milestoneId)
+      : null;
     const notifyTargets = [order.payerUserId, order.payeeUserId]
       .filter((id): id is string => Boolean(id) && id !== auth.authUserId);
     await createManyUserNotifications(
-      notifyTargets.map((userId) => ({
-        userId,
-        type: "PAYMENT_UPDATE",
-        title: "支付/托管状态更新",
-        body: `${result.title} · ${action}`,
-        linkUrl: `/marketplace/payments/${result.id}`,
-        metadata: { paymentOrderId: result.id, action, status: result.status, milestoneId: milestoneId ?? null },
-      })),
+      notifyTargets.map((userId) => {
+        const isAttorneyRecipient = userId === order.payeeUserId;
+        let title = "支付/托管状态更新";
+        let body = `${result.title} · ${action}`;
+        if (action === "release_milestone" && releasedMilestone) {
+          title = isAttorneyRecipient ? "🎉 里程碑款项已释放" : "里程碑已确认完成";
+          body = isAttorneyRecipient
+            ? `里程碑「${releasedMilestone.title}」$${Number(releasedMilestone.amount).toFixed(2)} 已由客户确认，款项已释放到你的账户。`
+            : `你已确认里程碑「${releasedMilestone.title}」完成，$${Number(releasedMilestone.amount).toFixed(2)} 已释放给律师。`;
+        } else if (action === "request_milestone_release") {
+          title = isAttorneyRecipient ? "里程碑释放申请已提交" : "律师申请释放里程碑款项";
+          body = isAttorneyRecipient
+            ? `你已申请释放里程碑款项，等待客户确认。`
+            : `律师申请释放里程碑款项（${result.title}），请前往确认。`;
+        } else if (action === "mark_paid_held") {
+          title = "支付已完成，资金托管中";
+          body = `${result.title} · 总金额 $${Number(result.amountTotal).toFixed(2)} 已托管，服务可正式开始。`;
+        } else if (action === "refund_request") {
+          title = "客户申请退款";
+          body = `${result.title} · 退款申请已提交，等待平台审核。`;
+        }
+        return {
+          userId,
+          type: "PAYMENT_UPDATE",
+          title,
+          body,
+          linkUrl: `/marketplace/payments/${result.id}`,
+          metadata: { paymentOrderId: result.id, action, status: result.status, milestoneId: milestoneId ?? null },
+        };
+      }),
     ).catch(() => null);
 
     return NextResponse.json({ ok: true, paymentOrder: result });

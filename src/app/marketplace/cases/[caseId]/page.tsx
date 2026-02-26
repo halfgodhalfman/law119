@@ -285,6 +285,7 @@ export default function MarketplaceCaseDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
   const [withdrawingBidId, setWithdrawingBidId] = useState<string | null>(null);
   const [withdrawConfirmBidId, setWithdrawConfirmBidId] = useState<string | null>(null);
   const [submitResult, setSubmitResult] = useState<string | null>(null);
@@ -680,10 +681,26 @@ export default function MarketplaceCaseDetailPage() {
                 </div>
               )}
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Link href="/marketplace/case-hall" className="rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-white">
                 返回大厅
               </Link>
+              {/* Item 8: copy case link for owner */}
+              {detail && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const url = `${window.location.origin}/marketplace/cases/${caseId}`;
+                    navigator.clipboard.writeText(url).then(() => {
+                      setCopiedLink(true);
+                      setTimeout(() => setCopiedLink(false), 2000);
+                    }).catch(() => {});
+                  }}
+                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-white"
+                >
+                  {copiedLink ? "✓ 已复制链接" : "🔗 分享案件链接"}
+                </button>
+              )}
               {caseId && detail?.viewer?.canSelectBid && (
                 <Link href={`/marketplace/cases/${caseId}/select`} className="rounded-lg bg-slate-900 text-white px-4 py-2 text-sm hover:bg-slate-700">
                   发布方选择报价
@@ -694,6 +711,48 @@ export default function MarketplaceCaseDetailPage() {
 
           {loading && <div className="text-sm text-slate-500">加载案件详情中...</div>}
           {error && <div className="text-sm text-rose-700">加载失败：{error}</div>}
+
+          {/* Item 4: Engagement guidance banner for CLIENT */}
+          {detail?.viewer?.isOwnerClient && detail.engagementSummary && (
+            detail.engagementSummary.status === "PENDING_ATTORNEY" ? (
+              <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-amber-800">⏳ 等待律师确认委托</p>
+                  <p className="mt-1 text-xs text-amber-700">你已选定律师，正在等待对方完成冲突检查并确认委托。委托生效后可开始正式服务。</p>
+                </div>
+                <Link href={`/marketplace/engagements/${detail.engagementSummary.id}`} className="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100">
+                  查看委托确认单 →
+                </Link>
+              </div>
+            ) : detail.engagementSummary.status === "PENDING_CLIENT" ? (
+              <div className="mb-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-emerald-800">✅ 律师已确认，需要你确认委托</p>
+                  <p className="mt-1 text-xs text-emerald-700">律师已完成冲突检查并确认服务范围，请尽快完成客户确认以激活委托。</p>
+                </div>
+                <Link href={`/marketplace/engagements/${detail.engagementSummary.id}`} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500">
+                  立即确认委托 →
+                </Link>
+              </div>
+            ) : detail.engagementSummary.status === "ACTIVE" ? (
+              <div className="mb-5 rounded-xl border border-blue-200 bg-blue-50 p-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-blue-800">🎉 委托已生效，服务进行中</p>
+                  <p className="mt-1 text-xs text-blue-700">双方已完成确认，委托正式生效。可查看服务进度或创建支付单。</p>
+                </div>
+                <div className="flex gap-2">
+                  {detail.engagementSummary.conversationId && (
+                    <Link href={`/chat/${detail.engagementSummary.conversationId}`} className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm text-blue-700 hover:bg-blue-50">
+                      进入会话
+                    </Link>
+                  )}
+                  <Link href={`/marketplace/engagements/${detail.engagementSummary.id}`} className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm text-blue-700 hover:bg-blue-50">
+                    委托详情 →
+                  </Link>
+                </div>
+              </div>
+            ) : null
+          )}
 
           {detail && (
             <div className="grid gap-5 lg:grid-cols-[1.25fr_1fr]">

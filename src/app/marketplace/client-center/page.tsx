@@ -13,7 +13,7 @@ type DashboardData = {
     support: { disputesInProgress: number; disputesNeedReply: number; reportsPending: number; notificationsUnread?: number };
   };
   modules: {
-    cases: Array<any>;
+    cases: Array<{ id: string; title: string; lifecycle: string; quoteDeadlinePassed?: boolean; _count?: { bids: number; conversations: number }; engagementSummary?: { id: string; status: string } | null }>;
     conversations: Array<any>;
     payments: Array<any>;
     disputes: Array<any>;
@@ -182,9 +182,25 @@ export default function ClientCenterPage() {
                         </div>
                         <p className="mt-2 text-sm font-semibold text-slate-900">{c.title}</p>
                         <p className="mt-1 text-xs text-slate-500">报价 {c._count?.bids ?? 0} · 会话 {c._count?.conversations ?? 0}</p>
+                        {/* Item 4: engagement confirmation guidance */}
+                        {c.engagementSummary && (c.engagementSummary.status === "PENDING_ATTORNEY" || c.engagementSummary.status === "PENDING_CLIENT") && (
+                          <div className={`mt-2 rounded-lg border px-3 py-2 text-xs ${c.engagementSummary.status === "PENDING_CLIENT" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
+                            {c.engagementSummary.status === "PENDING_CLIENT"
+                              ? "✅ 律师已确认——需要你确认委托！"
+                              : "⏳ 已选律师，等待律师确认委托中..."}
+                            <Link href={`/marketplace/engagements/${c.engagementSummary.id}`} className="ml-2 underline font-medium">
+                              前往确认 →
+                            </Link>
+                          </div>
+                        )}
                         <div className="mt-2 flex flex-wrap gap-2 text-xs">
                           <Link href={`/marketplace/cases/${c.id}`} className="underline">案件详情</Link>
                           <Link href={`/marketplace/cases/${c.id}/select`} className="underline">选择律师</Link>
+                          {c.engagementSummary?.status === "ACTIVE" && (
+                            <Link href={`/marketplace/engagements/${c.engagementSummary.id}`} className="rounded-full bg-blue-100 px-2 py-0.5 text-blue-700 hover:bg-blue-200">
+                              委托进行中 →
+                            </Link>
+                          )}
                           {(c.lifecycle === "MATCHED" || c.lifecycle === "COMPLETED") && (
                             <Link href="/marketplace/payments" className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700 hover:bg-amber-200">
                               查看履约进度 →
