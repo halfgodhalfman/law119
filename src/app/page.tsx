@@ -15,7 +15,8 @@ import {
 import { LEGAL_CATEGORIES, HOT_SUB_CATEGORIES } from "../lib/legal-categories";
 import { prisma } from "../lib/prisma";
 
-const STATS = [
+// Static fallback stats (overridden by DB values at runtime)
+const FALLBACK_STATS = [
   { value: "500+", label: "Cases Matched", zh: "成功匹配案件" },
   { value: "50+", label: "Verified Attorneys", zh: "认证华人律师" },
   { value: "10", label: "Practice Areas", zh: "法律专业领域" },
@@ -153,28 +154,40 @@ function formatRelativeTime(date: Date): string {
 }
 
 export default async function HomePage() {
-  // Fetch real published reviews from DB; fall back to static REVIEWS if none exist
-  const dbReviews = await prisma.attorneyClientReview
-    .findMany({
-      where: { status: "PUBLISHED", comment: { not: null } },
-      orderBy: { createdAt: "desc" },
-      take: 6,
-      select: {
-        id: true,
-        ratingOverall: true,
-        comment: true,
-        createdAt: true,
-        attorney: {
-          select: {
-            firstName: true,
-            lastName: true,
-            specialties: { take: 1, select: { category: true } },
-          },
+  // ── Fetch live DB stats ─────────────────────────────────────────
+  const [caseCount, attorneyCount, reviewAggregate, dbReviews] = await Promise.all([
+    prisma.case.count({ where: { status: { not: "DRAFT" } } }).catch(() => 0),
+    prisma.attorneyProfile.count({ where: { verificationStatus: "APPROVED" } }).catch(() => 0),
+    prisma.attorneyClientReview
+      .aggregate({ where: { status: "PUBLISHED" }, _avg: { ratingOverall: true }, _count: { id: true } })
+      .catch(() => ({ _avg: { ratingOverall: null }, _count: { id: 0 } })),
+    prisma.attorneyClientReview
+      .findMany({
+        where: { status: "PUBLISHED", comment: { not: null } },
+        orderBy: { createdAt: "desc" },
+        take: 6,
+        select: {
+          id: true, ratingOverall: true, comment: true, createdAt: true,
+          attorney: { select: { firstName: true, lastName: true, specialties: { take: 1, select: { category: true } } } },
+          client: { select: { firstName: true, zipCode: true } },
         },
-        client: { select: { firstName: true, zipCode: true } },
-      },
-    })
-    .catch(() => []);
+      })
+      .catch(() => []),
+  ]);
+
+  // Build real stats (show real numbers if > meaningful threshold, else show "500+" etc.)
+  const STATS = [
+    { value: caseCount > 10 ? `${caseCount}+` : FALLBACK_STATS[0].value, label: "Cases Matched", zh: "成功匹配案件" },
+    { value: attorneyCount > 5 ? `${attorneyCount}+` : FALLBACK_STATS[1].value, label: "Verified Attorneys", zh: "认证华人律师" },
+    { value: String(LEGAL_CATEGORIES.length), label: "Practice Areas", zh: "法律专业领域" },
+    { value: "48h", label: "Avg. Response", zh: "平均响应时间" },
+  ];
+
+  // Review aggregate
+  const avgRating = reviewAggregate._avg.ratingOverall ?? 4.9;
+  const totalReviews = reviewAggregate._count.id;
+  const ratingDisplay = avgRating.toFixed(1);
+  const reviewCountDisplay = totalReviews > 10 ? `${totalReviews}+` : "200+";
 
   const reviews =
     dbReviews.length > 0
@@ -220,49 +233,39 @@ export default async function HomePage() {
             让每个华人客户一键发案，让合格华人律师在线接单报价，让法律服务<strong className="text-slate-200">透明、可比、可信</strong>。
           </p>
 
-          {/* CTA Buttons */}
-          <div className="mt-10 flex flex-col sm:flex-row gap-4">
-            {/* Emergency */}
-            <Link
-              href="/emergency"
-              className="flex items-center gap-3 bg-rose-600 hover:bg-rose-500 text-white font-semibold px-6 py-4 rounded-xl transition-all shadow-lg shadow-rose-900/30 text-base"
-            >
-              <div className="h-8 w-8 bg-white/10 rounded-lg flex items-center justify-center flex-shrink-0">
-                <span className="text-lg">🚨</span>
-              </div>
-              <span>
-                紧急法律求助
-                <span className="block text-sm font-normal text-rose-100 mt-0.5">Emergency Legal Help →</span>
-              </span>
-            </Link>
-
-            {/* Normal case */}
+          {/* CTA Buttons — Primary / Secondary hierarchy */}
+          <div className="mt-10 space-y-4">
+            {/* PRIMARY: Post a Case — biggest, amber, high contrast */}
             <Link
               href="/case/new"
-              className="flex items-center gap-3 bg-amber-600 hover:bg-amber-500 text-white font-semibold px-6 py-4 rounded-xl transition-all shadow-lg shadow-amber-900/30 text-base"
+              className="inline-flex items-center gap-3 bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold px-8 py-4 rounded-xl transition-all shadow-xl shadow-amber-900/30 text-lg group"
             >
-              <div className="h-8 w-8 bg-white/10 rounded-lg flex items-center justify-center flex-shrink-0">
-                <DocumentTextIcon className="h-5 w-5" />
-              </div>
+              <DocumentTextIcon className="h-6 w-6 flex-shrink-0 group-hover:scale-110 transition-transform" />
               <span>
-                发布我的案件
-                <span className="block text-sm font-normal text-amber-100 mt-0.5">Post My Case Free →</span>
+                免费发布我的案件
+                <span className="block text-sm font-normal text-amber-900/70 mt-0.5">无需注册 · 匿名发案 · 0 前期费用</span>
               </span>
+              <ArrowRightIcon className="h-5 w-5 ml-2 group-hover:translate-x-1 transition-transform" />
             </Link>
 
-            {/* Attorney */}
-            <Link
-              href="/for-attorneys"
-              className="flex items-center gap-3 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white font-semibold px-6 py-4 rounded-xl transition-all text-base"
-            >
-              <div className="h-8 w-8 bg-white/5 rounded-lg flex items-center justify-center flex-shrink-0">
-                <ScalesIcon className="h-5 w-5 text-amber-400" />
-              </div>
-              <span>
-                律师入驻
-                <span className="block text-sm font-normal text-slate-400 mt-0.5">Attorney Portal →</span>
-              </span>
-            </Link>
+            {/* SECONDARY: smaller row */}
+            <div className="flex flex-wrap gap-3">
+              <Link
+                href="/emergency"
+                className="inline-flex items-center gap-2 bg-rose-600/90 hover:bg-rose-600 text-white font-semibold px-5 py-2.5 rounded-lg transition-all text-sm shadow-sm"
+              >
+                <span className="h-1.5 w-1.5 bg-white rounded-full animate-pulse" />
+                🚨 紧急法律求助
+                <span className="hidden sm:inline text-rose-200 font-normal">· Emergency Help</span>
+              </Link>
+              <Link
+                href="/for-attorneys"
+                className="inline-flex items-center gap-2 bg-transparent hover:bg-slate-800 border border-slate-600 hover:border-slate-500 text-slate-300 hover:text-white font-medium px-5 py-2.5 rounded-lg transition-all text-sm"
+              >
+                <ScalesIcon className="h-4 w-4 text-amber-400" />
+                律师入驻 · Attorney Portal
+              </Link>
+            </div>
           </div>
 
           {/* Trust Pills */}
@@ -495,7 +498,7 @@ export default async function HomePage() {
               {[1,2,3,4,5].map(i => (
                 <span key={i} className="text-amber-400 text-xl">★</span>
               ))}
-              <span className="ml-2 text-slate-600 text-sm font-medium">4.9/5.0 · 200+ 条评价</span>
+              <span className="ml-2 text-slate-600 text-sm font-medium">{ratingDisplay}/5.0 · {reviewCountDisplay} 条评价</span>
             </div>
           </div>
 
