@@ -35,7 +35,7 @@ export default async function SummaryPage({ params }: { params: Promise<{ engage
 
       <div className="no-print mb-6 flex items-center justify-between">
         <Link href={`/marketplace/engagements/${engagementId}`} className="text-sm text-blue-600 hover:underline">&larr; 返回委托详情</Link>
-        <button onClick="window.print()" className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700">打印总结</button>
+        <button onClick={() => window.print()} className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700">打印总结</button>
       </div>
 
       {/* Header */}

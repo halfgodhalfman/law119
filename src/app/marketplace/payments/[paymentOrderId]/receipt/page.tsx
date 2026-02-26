@@ -30,7 +30,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ paymen
       <style>{`@media print { .no-print { display: none !important; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }`}</style>
 
       <div className="no-print mb-6 flex justify-end">
-        <button onClick="window.print()" className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700">打印收据</button>
+        <button onClick={() => window.print()} className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700">打印收据</button>
       </div>
 
       {/* Header */}
