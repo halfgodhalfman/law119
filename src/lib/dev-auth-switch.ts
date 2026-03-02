@@ -61,15 +61,18 @@ export function isDevAuthSwitchEnabled() {
  * 在 isDevAuthSwitchEnabled() = true 时额外验证
  */
 export function isLocalOriginRequest(request: Request): boolean {
-  // In Next.js App Router, the real client IP comes from headers set by
-  // the runtime. In local dev with `next dev`, these will not be set,
-  // which means we're definitely local. On any cloud platform, at least
-  // one of the forwarded headers will be set.
-  const forwarded = request.headers.get("x-forwarded-for");
-  const realIp = request.headers.get("x-real-ip");
-  // If either forwarding header is present, request passed through a proxy/CDN
-  // → not a direct local request
-  if (forwarded || realIp) return false;
+  const LOCAL_IPS = new Set(["127.0.0.1", "::1", "localhost", "::ffff:127.0.0.1"]);
+  const forwarded = request.headers.get("x-forwarded-for")?.trim();
+  const realIp = request.headers.get("x-real-ip")?.trim();
+  // No forwarding headers → direct local request
+  if (!forwarded && !realIp) return true;
+  // Next.js 15 dev server may set forwarding headers even for local requests.
+  // Allow if ALL forwarded IPs resolve to localhost.
+  if (forwarded) {
+    const ips = forwarded.split(",").map((ip) => ip.trim());
+    if (!ips.every((ip) => LOCAL_IPS.has(ip))) return false;
+  }
+  if (realIp && !LOCAL_IPS.has(realIp)) return false;
   return true;
 }
 
