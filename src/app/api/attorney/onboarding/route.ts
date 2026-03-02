@@ -4,6 +4,7 @@ import { prisma } from "../../../../lib/prisma";
 import { requireAuthContext } from "../../../../lib/auth-context";
 import { z } from "zod";
 import { buildAttorneyReviewChecklist, computeAttorneyProfileCompleteness } from "@/lib/admin-attorney-review";
+import { logAttorneyProfileChange } from "@/lib/attorney-audit";
 
 const onboardingSchema = z.object({
   // Step 1 — Basic Info
@@ -70,6 +71,20 @@ export async function POST(request: Request) {
         id: true,
         lastReviewedAt: true,
         reviewStatus: true,
+        // 修复 #8: 审计日志快照字段（变更前）
+        firstName: true,
+        lastName: true,
+        phone: true,
+        firmName: true,
+        barLicenseNumber: true,
+        barState: true,
+        lawSchool: true,
+        yearsExperience: true,
+        bio: true,
+        identityDocumentType: true,
+        identityDocumentFileName: true,
+        registeredLegalName: true,
+        barRegisteredName: true,
       },
     });
 
@@ -201,6 +216,50 @@ export async function POST(request: Request) {
         });
       }
     });
+
+    // 修复 #8: 记录律师档案变更审计日志（异步，不阻断主流程）
+    // 对比变更前（existingProfile）和变更后（当前提交数据），记录差异快照
+    const auditBefore: Record<string, unknown> = existingProfile
+      ? {
+          firstName: existingProfile.firstName,
+          lastName: existingProfile.lastName,
+          phone: existingProfile.phone,
+          firmName: existingProfile.firmName,
+          barLicenseNumber: existingProfile.barLicenseNumber,
+          barState: existingProfile.barState,
+          lawSchool: existingProfile.lawSchool,
+          yearsExperience: existingProfile.yearsExperience,
+          bio: existingProfile.bio,
+          identityDocumentType: existingProfile.identityDocumentType,
+          identityDocumentFileName: existingProfile.identityDocumentFileName,
+          registeredLegalName: existingProfile.registeredLegalName,
+          barRegisteredName: existingProfile.barRegisteredName,
+        }
+      : {};
+    const auditAfter: Record<string, unknown> = {
+      firstName,
+      lastName,
+      phone: phone || null,
+      firmName: firmName || null,
+      barLicenseNumber,
+      barState,
+      lawSchool: lawSchool || null,
+      yearsExperience: yearsExperience ?? null,
+      bio: bio || null,
+      identityDocumentType: identityDocumentType ?? null,
+      identityDocumentFileName: identityDocumentFileName || null,
+      registeredLegalName: registeredLegalName || null,
+      barRegisteredName: barRegisteredName || null,
+    };
+    logAttorneyProfileChange(
+      profile.id,
+      auth.authUserId,
+      "SELF_UPDATE",
+      auditBefore,
+      auditAfter,
+      request,
+      existingProfile ? "律师更新 onboarding 资料" : "律师首次 onboarding",
+    ).catch(() => null); // 日志失败不影响主流程
 
     return NextResponse.json({ ok: true, profileId: profile.id });
   } catch (error) {

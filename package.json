@@ -15,16 +15,22 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@docuseal/react": "^1.0.71",
     "@hookform/resolvers": "^3.9.0",
     "@prisma/client": "^5.22.0",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.49.1",
+    "@types/dompurify": "^3.0.5",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.36.3",
+    "dompurify": "^3.3.1",
     "i18next": "^24.2.3",
     "next": "^15.2.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-hook-form": "^7.53.2",
     "react-i18next": "^15.4.1",
+    "stripe": "^20.4.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {

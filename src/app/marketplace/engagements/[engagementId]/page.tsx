@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { NavBar } from "@/components/ui/nav-bar";
+import { SignaturePanel, type SignatureStatus } from "@/components/engagement/signature-panel";
 
 type EngagementDetail = {
   id: string;
@@ -100,6 +101,11 @@ export default function EngagementPage() {
   const [paymentSaving, setPaymentSaving] = useState(false);
   const [paymentMsg, setPaymentMsg] = useState<string | null>(null);
   const [existingPaymentId, setExistingPaymentId] = useState<string | null>(null);
+  const [signatureData, setSignatureData] = useState<{
+    status: SignatureStatus | null;
+    embedToken: string | null;
+    signedPdfUrl: string | null;
+  }>({ status: null, embedToken: null, signedPdfUrl: null });
 
   const load = async () => {
     setLoading(true);
@@ -118,6 +124,20 @@ export default function EngagementPage() {
       const pj = await pr.json().catch(() => ({}));
       const items: Array<{ id: string }> = pj.items ?? [];
       setExistingPaymentId(items[0]?.id ?? null);
+    }
+    // Load signature status (role-aware: returns current user's embed token)
+    const sigR = await fetch(`/api/marketplace/engagements/${engagementId}/signature`, { cache: "no-store" }).catch(() => null);
+    if (sigR?.ok) {
+      const sigJ = await sigR.json().catch(() => ({}));
+      if (sigJ.ok && sigJ.signature) {
+        setSignatureData({
+          status: sigJ.signature.status,
+          embedToken: sigJ.signature.embedToken ?? null,
+          signedPdfUrl: sigJ.signature.signedPdfUrl ?? null,
+        });
+      } else {
+        setSignatureData({ status: null, embedToken: null, signedPdfUrl: null });
+      }
     }
     setForm({
       serviceBoundary: j.engagement.serviceBoundary,
@@ -166,6 +186,28 @@ export default function EngagementPage() {
     }
     setMsg(confirmAs ? `已完成 ${confirmAs === "ATTORNEY" ? "律师侧" : "客户侧"}确认` : "已保存委托确认单");
     await load();
+  };
+
+  /**
+   * 律师侧：先执行条款确认 PATCH（→ PENDING_CLIENT），然后由 SignaturePanel 发起签名请求。
+   * 此函数若抛出异常，SignaturePanel 会捕获并显示错误。
+   */
+  const confirmAttorneyTerms = async () => {
+    const r = await fetch(`/api/marketplace/engagements/${engagementId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...form,
+        feeAmountMin: form.feeAmountMin === "" ? null : form.feeAmountMin,
+        feeAmountMax: form.feeAmountMax === "" ? null : form.feeAmountMax,
+        stagePlan: form.stagePlan === "" ? null : form.stagePlan,
+        attorneyConflictCheckNote: form.attorneyConflictCheckNote === "" ? null : form.attorneyConflictCheckNote,
+        confirmAs: "ATTORNEY",
+      }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || "律师确认失败，请先保存并检查填写内容");
+    await load(); // 刷新 engagement 状态
   };
 
   const submitReview = async () => {
@@ -395,22 +437,26 @@ export default function EngagementPage() {
                   <p>客户确认：{data.engagement.clientConfirmedAt ? new Date(data.engagement.clientConfirmedAt).toLocaleString() : "未确认"}</p>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <button type="button" disabled={saving} onClick={() => void save()} className="rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-50">保存草稿</button>
-                  {data.viewer.canConfirmAttorney && (
-                    <button type="button" disabled={saving} onClick={() => void save("ATTORNEY")} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500 disabled:opacity-50">
-                      律师确认（含冲突检查）
-                    </button>
-                  )}
-                  {data.viewer.canConfirmClient && (
-                    <button type="button" disabled={saving} onClick={() => void save("CLIENT")} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50">
-                      客户确认
-                    </button>
-                  )}
+                  <button type="button" disabled={saving} onClick={() => void save()} className="rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-50">
+                    保存草稿
+                  </button>
                   {data.engagement.conversationId && (
                     <Link href={`/chat/${data.engagement.conversationId}`} className="rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50">
                       进入沟通会话
                     </Link>
                   )}
+                </div>
+
+                {/* ── 电子签名区域 ── */}
+                <div className="mt-5">
+                  <SignaturePanel
+                    engagementId={engagementId}
+                    userRole={data.viewer.role}
+                    initialStatus={signatureData.status}
+                    signedPdfUrl={signatureData.signedPdfUrl}
+                    initialEmbedToken={signatureData.embedToken}
+                    onAttorneyConfirmTerms={confirmAttorneyTerms}
+                  />
                 </div>
               </section>
 

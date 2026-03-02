@@ -100,6 +100,25 @@ export function NavBar() {
               <>
                 <Link href="/services" className="text-slate-300 hover:text-white text-sm font-medium px-3 py-2 rounded-lg hover:bg-slate-800 transition-colors">全部服务</Link>
                 <Link href="/attorneys" className="text-slate-300 hover:text-white text-sm font-medium px-3 py-2 rounded-lg hover:bg-slate-800 transition-colors">找律师</Link>
+                <Link href="/qa" className="text-slate-300 hover:text-white text-sm font-medium px-3 py-2 rounded-lg hover:bg-slate-800 transition-colors flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 bg-amber-400 rounded-full" />
+                  免费问答
+                </Link>
+                <Link href="/forms" className="text-slate-300 hover:text-white text-sm font-medium px-3 py-2 rounded-lg hover:bg-slate-800 transition-colors flex items-center gap-1.5">
+                  📄 法律文书
+                </Link>
+                <Link
+                  href={isClient ? "/marketplace/uscis-cases" : "/uscis"}
+                  className="text-slate-300 hover:text-white text-sm font-medium px-3 py-2 rounded-lg hover:bg-slate-800 transition-colors flex items-center gap-1.5"
+                >
+                  🛂 USCIS 追踪
+                </Link>
+                <Link
+                  href="/legal-aid"
+                  className="text-emerald-400 hover:text-emerald-300 text-sm font-medium px-3 py-2 rounded-lg hover:bg-slate-800 transition-colors flex items-center gap-1.5"
+                >
+                  🤝 法律援助
+                </Link>
                 <Link
                   href="/emergency"
                   className="text-rose-400 hover:text-rose-300 text-sm font-medium px-3 py-2 rounded-lg hover:bg-slate-800 transition-colors flex items-center gap-1.5"
@@ -124,7 +143,10 @@ export function NavBar() {
               <>
                 <Link href="/attorney/dashboard" className="text-slate-300 hover:text-white text-sm font-medium px-3 py-2 rounded-lg hover:bg-slate-800 transition-colors">律师后台</Link>
                 <Link href="/marketplace/case-hall" className="text-slate-300 hover:text-white text-sm font-medium px-3 py-2 rounded-lg hover:bg-slate-800 transition-colors">案件大厅</Link>
+                <Link href="/attorney/qa" className="text-slate-300 hover:text-white text-sm font-medium px-3 py-2 rounded-lg hover:bg-slate-800 transition-colors">回答问题</Link>
                 <Link href="/attorney/tasks" className="text-slate-300 hover:text-white text-sm font-medium px-3 py-2 rounded-lg hover:bg-slate-800 transition-colors">任务中心</Link>
+                <Link href="/attorney/service-packages" className="text-emerald-400 hover:text-emerald-300 text-sm font-medium px-3 py-2 rounded-lg hover:bg-slate-800 transition-colors flex items-center gap-1">🤝 援助服务</Link>
+                <Link href="/attorney/referrals" className="text-amber-400 hover:text-amber-300 text-sm font-medium px-3 py-2 rounded-lg hover:bg-slate-800 transition-colors flex items-center gap-1">↔ 转介绍</Link>
               </>
             )}
 
@@ -133,6 +155,7 @@ export function NavBar() {
               <>
                 <Link href="/marketplace/admin/dashboard" className="text-slate-300 hover:text-white text-sm font-medium px-3 py-2 rounded-lg hover:bg-slate-800 transition-colors">管理看板</Link>
                 <Link href="/marketplace/admin/support-inbox" className="text-slate-300 hover:text-white text-sm font-medium px-3 py-2 rounded-lg hover:bg-slate-800 transition-colors">统一工单台</Link>
+                <Link href="/marketplace/admin/qa" className="text-slate-300 hover:text-white text-sm font-medium px-3 py-2 rounded-lg hover:bg-slate-800 transition-colors">Q&A管理</Link>
                 <Link href="/marketplace/admin/audit" className="text-slate-300 hover:text-white text-sm font-medium px-3 py-2 rounded-lg hover:bg-slate-800 transition-colors">审计中心</Link>
               </>
             )}

@@ -59,5 +59,13 @@ export async function GET(req: Request) {
       category,
       stateCode,
     },
+    // Layer 9 合规：明确标注为历史参考数据，防止被误解为"平台建议定价"
+    // 平台不参与律师定价，不制定统一收费标准
+    _disclaimer: {
+      isHistoricalReference: true,
+      dataWindow: "last_12_months",
+      note: "以上数据为平台近 12 个月历史成交统计，仅供参考，不构成平台对价格的建议或保证。平台不参与律师定价，不设统一收费标准。律师独立报价，客户独立决策。",
+      noteEn: "Historical transaction data from the past 12 months. For reference only. Not a recommended price or guarantee. Law119 does not standardize, influence, or set attorney fees. Attorneys price independently.",
+    },
   });
 }

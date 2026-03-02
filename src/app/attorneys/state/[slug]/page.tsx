@@ -8,6 +8,7 @@ import { Footer } from "@/components/ui/footer";
 import { AttorneyCard } from "@/components/attorney/attorney-card";
 import { LEGAL_CATEGORIES } from "@/lib/legal-categories";
 import { computeAttorneyTrustSummary, computeAttorneyTier } from "@/lib/attorney-trust";
+import { CITY_MAP, SPECIALTY_MAP } from "@/lib/attorney-city-data";
 
 // ─── Slug → State mapping ──────────────────────────────────────────────────
 const STATE_SLUGS: Record<
@@ -327,6 +328,55 @@ export default async function StatePage({
               ))}
             </div>
           </section>
+
+          {/* ── Cities in this state ──────────────────────────────── */}
+          {(() => {
+            const stateCities = Object.entries(CITY_MAP).filter(
+              ([, c]) => c.stateCode === stateInfo.code
+            );
+            if (stateCities.length === 0) return null;
+            return (
+              <section className="mb-10">
+                <h2 className="text-base font-semibold text-slate-700 mb-4">
+                  {stateInfo.nameZh}主要城市华人律师
+                </h2>
+                <div className="flex flex-wrap gap-2">
+                  {stateCities.map(([citySlug, c]) => (
+                    <Link
+                      key={citySlug}
+                      href={`/attorneys/city/${citySlug}`}
+                      className="inline-flex rounded-full border border-slate-200 bg-white px-4 py-1.5 text-sm text-slate-700 hover:border-amber-400 hover:text-amber-700 transition-colors"
+                    >
+                      {c.nameZh}
+                    </Link>
+                  ))}
+                </div>
+                {/* City + Specialty quick links */}
+                {topCategories.length > 0 && stateCities.length > 0 && (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {stateCities.slice(0, 2).map(([citySlug, c]) =>
+                      topCategories.slice(0, 3).map((catKey) => {
+                        const specSlug = Object.entries(SPECIALTY_MAP).find(
+                          ([, s]) => s.categoryKey === catKey
+                        )?.[0];
+                        const specInfo = specSlug ? SPECIALTY_MAP[specSlug] : null;
+                        if (!specSlug || !specInfo) return null;
+                        return (
+                          <Link
+                            key={`${citySlug}-${specSlug}`}
+                            href={`/attorneys/city/${citySlug}/${specSlug}`}
+                            className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-3 py-1 text-xs text-amber-700 hover:bg-amber-100 transition-colors"
+                          >
+                            {specInfo.emoji} {c.nameZh}{specInfo.nameZh}律师
+                          </Link>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+              </section>
+            );
+          })()}
 
           {/* ── Other states ──────────────────────────────────────── */}
           <section>

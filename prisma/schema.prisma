@@ -131,6 +131,8 @@ enum AdminActionEntityType {
   ATTORNEY
   SUPPORT_TICKET
   NOTIFICATION
+  QA_QUESTION
+  QA_ANSWER
 }
 
 enum CaseAttachmentVisibility {
@@ -414,6 +416,11 @@ model User {
   attorneyClientReviewsModerated AttorneyClientReview[] @relation("AttorneyClientReviewModerator")
   attorneyBadgesGranted AttorneyBadgeGrant[] @relation("AttorneyBadgeGrantedBy")
   attorneyNotificationPreference AttorneyNotificationPreference?
+  qaQuestionsAuthored   QaQuestion[] @relation("QaQuestionAuthor")
+  qaAnswersAuthored     QaAnswer[]   @relation("QaAnswerAuthor")
+  qaVotes               QaVote[]     @relation("QaVoteUser")
+  legalFormSubmissions  LegalFormSubmission[] @relation("LegalFormSubmissionUser")
+  uscisTrackedCases     USCISTrackedCase[]    @relation("USCISTrackedCases")
 
   @@index([role])
 }
@@ -504,6 +511,17 @@ model AttorneyProfile {
   profileCompletenessScore Int  @default(0)
   reviewChecklistSnapshot Json?
 
+  // ── 法律援助 / 低价服务 ──────────────────────────────────
+  proBonoAvailable      Boolean   @default(false)  // 提供免费/公益服务
+  slidingScaleAvailable Boolean   @default(false)  // 提供按收入滑动收费
+  legalAidPartner       Boolean   @default(false)  // 法学院诊所 / 法律援助机构
+
+  // ── Stripe Connect 收款账户 ──────────────────────────────
+  stripeAccountId           String?   @db.VarChar(100) // Stripe Connect Express 子账户 ID
+  stripeOnboardingComplete  Boolean   @default(false)  // 是否完成 Stripe onboarding 流程
+  stripeChargesEnabled      Boolean   @default(false)  // 是否可接受付款
+  stripePayoutsEnabled      Boolean   @default(false)  // 是否可提现到银行账户
+
   user              User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   serviceAreas      AttorneyServiceArea[]
   specialties       AttorneySpecialty[]
@@ -524,7 +542,11 @@ model AttorneyProfile {
   showcaseCases      AttorneyCaseShowcase[]
   badges             AttorneyBadgeGrant[]
   contractTemplates  ContractTemplate[]
+  servicePackages    ServicePackage[]   @relation("AttorneyServicePackages")
+  outgoingReferrals  CaseReferral[]     @relation("ReferralOutgoing")
+  incomingReferrals  CaseReferral[]     @relation("ReferralIncoming")
   lastReviewedBy     User?      @relation("AttorneyLastReviewer", fields: [lastReviewedByUserId], references: [id], onDelete: SetNull)
+  qaAnswers          QaAnswer[] @relation("QaAnswerAttorney")
 
   createdAt         DateTime   @default(now())
   updatedAt         DateTime   @updatedAt
@@ -564,6 +586,9 @@ enum AttorneyBadgeType {
   LOW_DISPUTE_RATE
   MULTILINGUAL
   PREMIUM_MEMBER
+  PRO_BONO_PROVIDER   // 提供免费/公益法律服务
+  SLIDING_SCALE       // 提供滑动收费（按收入定价）
+  LEGAL_AID_PARTNER   // 法学院诊所 / 法律援助机构合作
 }
 
 enum AttorneyBadgeSource {
@@ -1155,6 +1180,7 @@ model EngagementConfirmation {
   paymentOrders            PaymentOrder[]
   attorneyClientReviews    AttorneyClientReview[]
   serviceStages            ServiceStage[]
+  signature                EngagementSignature?   @relation("EngagementSignatureRel")
 
   @@unique([bidId])
   @@index([caseId, status])
@@ -1403,6 +1429,11 @@ model PaymentOrder {
   refundReason      RefundReason?
   refundDescription String?
   refundEvidencePaths String[]        @default([])
+  // ── Stripe 支付追踪 ──────────────────────────────────────
+  stripePaymentIntentId    String?   @db.VarChar(100) // 客户支付的 PaymentIntent ID
+  stripeTransferId         String?   @db.VarChar(100) // 里程碑释放时的 Transfer ID
+  platformServiceFeeAmount Decimal?  @db.Decimal(10,2) // 平台技术服务费金额（快照）
+  platformServiceFeeRate   Decimal?  @db.Decimal(5,4)  // 费率快照（创单时冻结，e.g. 0.0500 = 5%）
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
@@ -1736,4 +1767,427 @@ model MilestoneDeliverable {
   milestone      PaymentMilestone  @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
 
   @@index([milestoneId, createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Q&A Community — 免费法律问答社区
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum QaQuestionStatus {
+  PUBLISHED      // 正常公开显示
+  PENDING        // 等待管理员审核
+  HIDDEN         // 管理员隐藏
+  DELETED        // 软删除
+}
+
+enum QaAnswerStatus {
+  PUBLISHED      // 正常公开显示
+  HIDDEN         // 管理员隐藏
+  DELETED        // 软删除
+}
+
+enum QaVoteType {
+  HELPFUL        // 有帮助
+}
+
+model QaQuestion {
+  id                String           @id @default(cuid())
+  slug              String           @unique @db.VarChar(200)  // SEO-friendly URL slug
+  title             String           @db.VarChar(200)
+  body              String           // 问题正文
+  category          LegalCategory
+  stateCode         String?          @db.Char(2)
+  preferredLanguage Language         @default(MANDARIN)
+  // 匿名发布信息
+  authorName        String           @default("匿名用户") @db.VarChar(80)
+  authorUserId      String?          @db.Uuid
+  authorEmail       String?          @db.VarChar(200)  // 不公开，仅用于通知
+  status            QaQuestionStatus @default(PUBLISHED)
+  viewCount         Int              @default(0)
+  answerCount       Int              @default(0)       // 冗余计数，加速列表查询
+  acceptedAnswerId  String?          @db.VarChar(50)   // 最佳回答 ID
+  adminNote         String?
+
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  author            User?            @relation("QaQuestionAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+  answers           QaAnswer[]
+
+  @@index([category, status, createdAt])
+  @@index([stateCode, status, createdAt])
+  @@index([status, createdAt])
+  @@index([authorUserId, createdAt])
+}
+
+model QaAnswer {
+  id                String          @id @default(cuid())
+  questionId        String
+  authorUserId      String          @db.Uuid
+  attorneyProfileId String?
+  body              String
+  status            QaAnswerStatus  @default(PUBLISHED)
+  voteCount         Int             @default(0)        // 冗余投票数
+  isAccepted        Boolean         @default(false)
+  adminNote         String?
+
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  question          QaQuestion      @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  author            User            @relation("QaAnswerAuthor", fields: [authorUserId], references: [id], onDelete: Cascade)
+  attorney          AttorneyProfile? @relation("QaAnswerAttorney", fields: [attorneyProfileId], references: [id], onDelete: SetNull)
+  votes             QaVote[]
+
+  @@index([questionId, status, createdAt])
+  @@index([authorUserId, createdAt])
+  @@index([attorneyProfileId, createdAt])
+  @@index([isAccepted, createdAt])
+}
+
+model QaVote {
+  id          String     @id @default(cuid())
+  answerId    String
+  userId      String?    @db.Uuid
+  visitorKey  String?    @db.VarChar(64)  // 匿名用户防重投
+  voteType    QaVoteType @default(HELPFUL)
+  createdAt   DateTime   @default(now())
+
+  answer      QaAnswer   @relation(fields: [answerId], references: [id], onDelete: Cascade)
+  user        User?      @relation("QaVoteUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([answerId, userId])
+  @@unique([answerId, visitorKey])
+  @@index([answerId, createdAt])
+}
+
+// ─── DIY 法律文书/表单 ───────────────────────────────────────────────────────
+
+enum FormSubmissionStatus {
+  DRAFT
+  COMPLETED
+}
+
+/// 法律文书模板（存储表单字段定义 + 文书 HTML 模板）
+model LegalFormTemplate {
+  id               String   @id @default(cuid())
+  slug             String   @unique @db.VarChar(100)
+  title            String   @db.VarChar(200)     // 英文标题
+  titleZh          String   @db.VarChar(200)     // 中文标题
+  description      String                        // 英文说明
+  descriptionZh    String                        // 中文说明
+  category         LegalCategory
+  config           Json                          // { steps, document } — 见 src/types/legal-form.ts
+  isPremium        Boolean  @default(false)
+  isFeatured       Boolean  @default(false)
+  estimatedMinutes Int      @default(10)
+  useCount         Int      @default(0)
+  isActive         Boolean  @default(true)
+  sortOrder        Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  submissions      LegalFormSubmission[]
+
+  @@index([category, isActive, sortOrder])
+  @@index([isFeatured, isActive])
+}
+
+/// 用户提交的文书内容（保存填写结果，生成文书时查询）
+model LegalFormSubmission {
+  id         String               @id @default(cuid())
+  templateId String
+  userId     String?              @db.Uuid
+  sessionKey String?              @db.VarChar(64)   // 匿名用户标识（localStorage UUID）
+  formData   Json                                   // { fieldId: value, ... }
+  status     FormSubmissionStatus @default(COMPLETED)
+  createdAt  DateTime             @default(now())
+  expiresAt  DateTime                               // 30天后过期
+
+  template   LegalFormTemplate    @relation(fields: [templateId], references: [id])
+  user       User?                @relation("LegalFormSubmissionUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([sessionKey, createdAt])
+  @@index([templateId, createdAt])
+}
+
+// ─── 电子签名 ─────────────────────────────────────────────────────────────────
+
+enum SignatureStatus {
+  PENDING           // 签名请求尚未创建
+  AWAITING_ATTORNEY // 等待律师签名
+  AWAITING_CLIENT   // 律师已签，等待客户
+  COMPLETED         // 双方均已签
+  VOIDED            // 已作废
+}
+
+model EngagementSignature {
+  id             String   @id @default(cuid())
+  engagementId   String   @unique
+  engagement     EngagementConfirmation @relation("EngagementSignatureRel", fields: [engagementId], references: [id], onDelete: Cascade)
+
+  // Docuseal 签名请求 IDs
+  submissionId        String?  @db.VarChar(100)  // Docuseal submission ID
+  docusealTemplateId  String?  @db.VarChar(100)  // 每次动态生成的 template ID
+
+  status  SignatureStatus @default(PENDING)
+
+  // 律师签名
+  attorneySubmitterId String?  @db.VarChar(100)
+  attorneyEmbedToken  String?  @db.Text  // Docuseal embed token（JWT）
+  attorneySignedAt    DateTime?
+
+  // 客户签名
+  clientSubmitterId   String?  @db.VarChar(100)
+  clientEmbedToken    String?  @db.Text
+  clientSignedAt      DateTime?
+
+  // 签名完成后存档
+  signedPdfStoragePath String?            // Supabase Storage 路径
+  signedPdfUrl         String?            // 授权访问 URL
+  completedAt          DateTime?
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([submissionId])
+  @@index([status])
+}
+
+// ─── USCIS 案件追踪器 ─────────────────────────────────────────────────────────
+
+/// USCIS 案件状态分类
+enum USCISStatusCategory {
+  PENDING   // 正常处理中
+  ACTION    // 需要行动（面谈通知、指纹预约等）
+  ALERT     // 需立即关注（RFE、拒签等）
+  APPROVED  // 已批准
+  COMPLETE  // 已完成（绿卡/证件已寄送）
+}
+
+/// 用户追踪的 USCIS 案件
+model USCISTrackedCase {
+  id              String              @id @default(cuid())
+
+  // 所有者（可匿名）
+  userId          String?             @db.Uuid
+  user            User?               @relation("USCISTrackedCases", fields: [userId], references: [id], onDelete: Cascade)
+
+  receiptNumber   String              // 收据号，如 LIN2401234567
+  formType        String?             @db.VarChar(20)   // 用户填写，如 "I-485"
+  nickname        String?             @db.VarChar(80)   // 用户自定义名称，如 "我的绿卡"
+
+  // 最新状态（从 USCIS 抓取）
+  lastStatus      String?             @db.VarChar(200)  // 状态标题
+  lastStatusBody  String?             @db.Text          // 状态详情
+  statusCategory  USCISStatusCategory @default(PENDING)
+  lastCheckedAt   DateTime?
+
+  // 状态历史（JSON 数组：[{ status, statusBody, category, checkedAt }]）
+  statusHistory   Json                @default("[]")
+
+  // 通知设置
+  notifyOnChange  Boolean             @default(true)
+  alertEmail      String?             @db.VarChar(200)  // 匿名用户邮件通知
+
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@unique([userId, receiptNumber])
+  @@index([userId])
+  @@index([receiptNumber])
+  @@index([statusCategory, lastCheckedAt])
+}
+
+// ─── 法律援助 / 低价服务包 ─────────────────────────────────────────────────────
+
+/// 律师发布的固定价格服务包（免费/公益/低价/滑动收费）
+model ServicePackage {
+  id                String        @id @default(cuid())
+  attorneyProfileId String
+
+  // 服务基本信息
+  title             String        @db.VarChar(120)   // 服务包名称（中文）
+  titleEn           String?       @db.VarChar(120)   // 英文名称
+  category          LegalCategory                    // 所属法律领域
+  stateCode         String?       @db.Char(2)        // 服务州（null = 全国）
+  description       String        @db.Text           // 服务描述
+  deliverables      String        @db.Text           // 包含内容（markdown list）
+
+  // 定价
+  packageType       ServicePackageType @default(FIXED_PRICE)
+  price             Decimal?      @db.Decimal(10, 2) // null = 免费/待协商
+  priceLabel        String?       @db.VarChar(60)    // 展示文字："免费" / "¥99起" / "按收入定价"
+  currency          String        @default("USD")    @db.VarChar(3)
+
+  // 资格限制（法律援助用）
+  incomeCapAnnual   Decimal?      @db.Decimal(12, 2) // 申请者年收入上限（null = 无限制）
+  eligibilityCriteria String?     @db.Text           // 资格说明（如 "仅限低收入华人家庭"）
+
+  // 服务细节
+  estimatedDays     Int?                             // 预计完成天数
+  maxCasesPerMonth  Int?                             // 每月可接收数量限制（防止过载）
+  sessionCount      Int?                             // 包含咨询次数（如 "3次30分钟咨询"）
+  sessionMinutes    Int?                             // 每次咨询时长（分钟）
+
+  // 状态
+  isActive          Boolean       @default(true)
+  sortOrder         Int           @default(0)
+  totalBooked       Int           @default(0)        // 累计预约次数（冷启动数据）
+
+  // 关联
+  attorney          AttorneyProfile @relation("AttorneyServicePackages", fields: [attorneyProfileId], references: [id], onDelete: Cascade)
+
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([attorneyProfileId, isActive])
+  @@index([category, isActive, packageType])
+  @@index([stateCode, category, isActive])
+  @@index([packageType, isActive, sortOrder])
+}
+
+enum ServicePackageType {
+  PRO_BONO       // 完全免费（公益服务）
+  SLIDING_SCALE  // 滑动收费（按收入比例）
+  FIXED_PRICE    // 固定低价
+  FREE_CONSULT   // 免费初次咨询（引流）
+}
+
+// ─── 律师转介绍网络（Referral Network）────────────────────────────────────────
+
+enum ReferralStatus {
+  PENDING      // 等待接收方确认
+  ACCEPTED     // 已接受，案件进行中
+  DECLINED     // 拒绝
+  IN_PROGRESS  // 案件 Engagement 已建立，追踪中
+  COMPLETED    // 完成，referral fee 已结清
+  CANCELLED    // 转出方已撤销
+  EXPIRED      // 邀请已过期（超过 expiresAt）
+}
+
+enum ReferralFeeMode {
+  PERCENTAGE  // 按最终律师费比例（如 25%）
+  FIXED       // 固定金额
+  NONE        // 纯转介绍，不收 fee
+}
+
+enum ReferralFeeStatus {
+  PENDING    // 等待案件完成后触发
+  HELD       // 托管中（Engagement 完成后等待平台释放）
+  RELEASED   // 已释放给转出方律师
+  DISPUTED   // 争议中
+  WAIVED     // 双方协商放弃
+}
+
+/// 律师间案件转介绍记录
+model CaseReferral {
+  id                   String          @id @default(cuid())
+
+  // 参与双方（律师 profile ID）
+  referrerAttorneyId   String          // 转出方
+  receiverAttorneyId   String          // 接收方
+
+  // 案件信息（脱敏描述，不含客户隐私）
+  clientDescBrief      String          @db.Text          // 匿名案情描述
+  legalCategory        LegalCategory                     // 法律领域
+  stateCode            String?         @db.Char(2)       // 案件所在州
+  urgencyNote          String?         @db.VarChar(200)  // 紧急程度说明
+
+  // 关联平台资源（可选，均存 ID 不建 Prisma relation 避免耦合）
+  sourceCaseId         String?         // 平台已有 Case ID
+  linkedCaseId         String?         // 接收方在平台创建的 Case ID
+  linkedEngagementId   String?         // 最终成交的 Engagement ID
+
+  // Referral Fee 约定
+  feeMode              ReferralFeeMode @default(NONE)
+  feePercent           Decimal?        @db.Decimal(5, 2)   // 如 25.00 表示 25%
+  feeAmount            Decimal?        @db.Decimal(10, 2)  // 固定金额
+  feeCurrency          String          @default("USD")     @db.VarChar(3)
+  feeNote              String?         @db.VarChar(500)    // 其他 fee 约定说明
+
+  // 合规声明（符合 ABA Model Rule 1.5(e)）
+  clientDisclosureAck  Boolean         @default(false)  // 已向客户书面披露转介绍安排
+  conflictCheckDone    Boolean         @default(false)  // 已完成利益冲突检查
+  barRuleAck           Boolean         @default(false)  // 确认遵守所在州律师协会规则
+
+  // 状态
+  status               ReferralStatus  @default(PENDING)
+  declineReason        String?         @db.VarChar(500)
+  notes                String?         @db.Text         // 转出方备注（接收方可见）
+  receiverNote         String?         @db.Text         // 接收方回复备注
+
+  // 时间戳
+  acceptedAt           DateTime?
+  completedAt          DateTime?
+  cancelledAt          DateTime?
+  expiresAt            DateTime?       // 邀请有效截止时间（null = 无限期）
+
+  // 关联
+  referrerAttorney     AttorneyProfile @relation("ReferralOutgoing", fields: [referrerAttorneyId], references: [id], onDelete: Cascade)
+  receiverAttorney     AttorneyProfile @relation("ReferralIncoming", fields: [receiverAttorneyId], references: [id], onDelete: Cascade)
+  feeRecord            ReferralFeeRecord?
+
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  @@index([referrerAttorneyId, status, createdAt])
+  @@index([receiverAttorneyId, status, createdAt])
+  @@index([status, createdAt])
+  @@index([legalCategory, stateCode, status])
+}
+
+/// Referral Fee 托管记录
+model ReferralFeeRecord {
+  id               String            @id @default(cuid())
+  referralId       String            @unique
+
+  feeAmount        Decimal           @db.Decimal(10, 2)  // 最终确定的 fee 金额
+  feeCurrency      String            @default("USD")     @db.VarChar(3)
+  calculationNote  String?           @db.VarChar(500)    // 计算说明（如：基于律师费 $5000 × 25%）
+
+  // 可选：关联现有 PaymentOrder 体系做托管
+  paymentOrderId   String?           @db.VarChar(100)
+
+  status           ReferralFeeStatus @default(PENDING)
+  heldAt           DateTime?
+  releasedAt       DateTime?
+  releaseNote      String?
+  disputedAt       DateTime?
+  disputeNote      String?
+  waivedAt         DateTime?
+
+  referral         CaseReferral      @relation(fields: [referralId], references: [id], onDelete: Cascade)
+
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([status])
+}
+
+// ─── 修复 #8: 律师档案变更审计日志 ───────────────────────────────────────────
+
+// AttorneyProfileAuditLog — 记录律师修改自己档案的每次变更
+// 用途：
+// 1. 法律举证：若律师虚假宣传后删改，平台有完整历史记录
+// 2. 合规审计：管理员可追溯任意时间点的律师信息
+// 3. 争议解决：客户投诉时提供变更前快照
+model AttorneyProfileAuditLog {
+  id              String   @id @default(cuid())
+  attorneyId      String   // 对应 AttorneyProfile.id（不加外键，即使档案删除也保留日志）
+  operatorUserId  String?  @db.Uuid  // 操作者（律师本人或管理员）
+  operationType   String   @db.VarChar(30)  // "SELF_UPDATE" | "ADMIN_UPDATE" | "ADMIN_VERIFY"
+  changedFields   String[] // 变更的字段名称列表（例如 ["bio", "firmName"]）
+  beforeSnapshot  Json?    // 变更前快照（仅包含 changedFields 对应的旧值）
+  afterSnapshot   Json?    // 变更后快照（仅包含 changedFields 对应的新值）
+  ipAddress       String?  @db.VarChar(50)
+  userAgent       String?  @db.VarChar(300)
+  note            String?  // 可选备注（管理员操作时可附说明）
+
+  createdAt       DateTime @default(now())
+
+  @@index([attorneyId])
+  @@index([operatorUserId])
+  @@index([createdAt])
 }

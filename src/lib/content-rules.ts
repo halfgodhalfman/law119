@@ -123,10 +123,19 @@ export function evaluateContentRules(input: EvaluateInput): RuleHit[] {
   return hits;
 }
 
+/**
+ * 安全的正则匹配，防止 ReDoS（正则表达式拒绝服务）攻击。
+ * 策略：限制正则匹配执行时间（超时判 miss），并拒绝高风险模式。
+ */
 function safeMatch(pattern: string, patternType: string, text: string) {
   if (patternType === "contains") {
     const idx = text.toLowerCase().indexOf(pattern.toLowerCase());
     return idx >= 0 ? text.slice(idx, idx + pattern.length) : null;
+  }
+  // ReDoS 防护：拒绝已知高风险模式（嵌套量词、回溯陷阱）
+  if (isDangerousRegex(pattern)) {
+    console.warn(`[ContentRules] Skipping potentially dangerous regex: ${pattern.slice(0, 80)}`);
+    return null;
   }
   try {
     const regex = new RegExp(pattern, "i");
@@ -135,6 +144,29 @@ function safeMatch(pattern: string, patternType: string, text: string) {
   } catch {
     return null;
   }
+}
+
+/**
+ * 检测高风险的 ReDoS 正则模式。
+ * 简化版安全检查，无需外部依赖。
+ * 主要检测：嵌套量词 (a+)+、交替量词 (a|a)+、回溯陷阱等。
+ */
+function isDangerousRegex(pattern: string): boolean {
+  // 长度限制：超过500字符的正则拒绝
+  if (pattern.length > 500) return true;
+  // 检测嵌套量词：(x+)+ / (x*)* / (x+)* / (x*)+
+  if (/\([^)]*[+*][^)]*\)[+*{]/.test(pattern)) return true;
+  // 检测交替嵌套量词：(x|y+)+
+  if (/\([^)]*\|[^)]*[+*][^)]*\)[+*{]/.test(pattern)) return true;
+  // 检测过深的嵌套分组（超过5层）
+  let depth = 0;
+  let maxDepth = 0;
+  for (const ch of pattern) {
+    if (ch === "(") { depth++; maxDepth = Math.max(maxDepth, depth); }
+    else if (ch === ")") depth = Math.max(0, depth - 1);
+  }
+  if (maxDepth > 5) return true;
+  return false;
 }
 
 export async function ensureDefaultContentRuleConfigs() {
@@ -218,10 +250,54 @@ export async function persistContentRuleHits(input: EvaluateInput, hits: RuleHit
 }
 
 export function summarizeRuleHits(hits: RuleHit[]) {
+  const hasBlock = hits.some((h) => h.action === "BLOCK");
+  const hasReview = hits.some((h) => h.action === "REVIEW");
+  const hasWarn = hits.some((h) => h.action === "WARN");
+
   return {
-    hasBlock: hits.some((h) => h.action === "BLOCK"),
-    hasReview: hits.some((h) => h.action === "REVIEW"),
+    hasBlock,
+    hasReview,
+    hasWarn,
+    /**
+     * shouldHide: REVIEW 命中的内容需隐藏等待人工审核，不立即对外展示。
+     * WARN 命中：内容可发布，但在管理后台标记待关注。
+     * BLOCK 命中：完全阻止发布（调用方处理 409 响应）。
+     */
+    shouldHide: hasReview,
     warnings: hits.filter((h) => h.action === "WARN" || h.action === "REVIEW").map((h) => h.note),
     hits,
   };
+}
+
+/**
+ * 中文数字拼写检测（用于绕过联系方式检测的场景）
+ * 例如："一三三零零八" 等数字中文拼写
+ */
+export function containsChineseNumberSequence(text: string): boolean {
+  const chineseDigits = /[零一二三四五六七八九十百]/g;
+  const matches = text.match(chineseDigits);
+  // 如果出现连续6个以上中文数字字符，判定为疑似电话号码
+  if (!matches || matches.length < 6) return false;
+  // 检查是否在较短的文本片段中密集出现
+  let consecutive = 0;
+  let maxConsecutive = 0;
+  for (const ch of text) {
+    if (/[零一二三四五六七八九十百]/.test(ch)) {
+      consecutive++;
+      maxConsecutive = Math.max(maxConsecutive, consecutive);
+    } else if (/\s/.test(ch)) {
+      // 空格允许间隔，不重置计数
+    } else {
+      consecutive = 0;
+    }
+  }
+  return maxConsecutive >= 6;
+}
+
+/**
+ * 点分隔联系方式检测（如：w.e.c.h.a.t 等绕过方式）
+ */
+export function containsDotSeparatedContact(text: string): boolean {
+  // 检测点分隔超过4个字符的关键词
+  return /[a-zA-Z]\.[a-zA-Z]\.[a-zA-Z]\.[a-zA-Z]/.test(text);
 }

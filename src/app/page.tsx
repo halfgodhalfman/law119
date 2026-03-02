@@ -156,8 +156,8 @@ function formatRelativeTime(date: Date): string {
 export default async function HomePage() {
   // ── Fetch live DB stats ─────────────────────────────────────────
   const [caseCount, attorneyCount, reviewAggregate, dbReviews] = await Promise.all([
-    prisma.case.count({ where: { status: { not: "DRAFT" } } }).catch(() => 0),
-    prisma.attorneyProfile.count({ where: { verificationStatus: "APPROVED" } }).catch(() => 0),
+    prisma.case.count({ where: { status: { in: ["OPEN", "MATCHING", "CLOSED"] } } }).catch(() => 0),
+    prisma.attorneyProfile.count({ where: { reviewStatus: "APPROVED" } }).catch(() => 0),
     prisma.attorneyClientReview
       .aggregate({ where: { status: "PUBLISHED" }, _avg: { ratingOverall: true }, _count: { id: true } })
       .catch(() => ({ _avg: { ratingOverall: null }, _count: { id: 0 } })),

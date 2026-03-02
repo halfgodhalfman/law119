@@ -11,8 +11,22 @@ const patchSchema = z.object({
   serviceScopeSummary: z.string().trim().min(10).max(4000).optional(),
   stagePlan: z.string().trim().max(4000).optional().nullable(),
   feeMode: z.enum(["CONSULTATION", "AGENCY", "STAGED", "HOURLY", "CUSTOM"]).optional(),
-  feeAmountMin: z.union([z.number(), z.string()]).optional().nullable(),
-  feeAmountMax: z.union([z.number(), z.string()]).optional().nullable(),
+  // 修复 #12: 添加金额上下限校验（防止创建 $999,999,999 天价合同）
+  // 最大值 $1,000,000（法律服务费用的合理上限，超出需人工审核）
+  feeAmountMin: z.union([
+    z.number().min(0).max(1_000_000, "服务费最低价不可超过 $1,000,000"),
+    z.string().refine((v) => {
+      const n = parseFloat(v);
+      return !isNaN(n) && n >= 0 && n <= 1_000_000;
+    }, "服务费最低价不可超过 $1,000,000"),
+  ]).optional().nullable(),
+  feeAmountMax: z.union([
+    z.number().min(0).max(1_000_000, "服务费最高价不可超过 $1,000,000"),
+    z.string().refine((v) => {
+      const n = parseFloat(v);
+      return !isNaN(n) && n >= 0 && n <= 1_000_000;
+    }, "服务费最高价不可超过 $1,000,000"),
+  ]).optional().nullable(),
   includesConsultation: z.boolean().optional(),
   includesCourtAppearance: z.boolean().optional(),
   includesTranslation: z.boolean().optional(),

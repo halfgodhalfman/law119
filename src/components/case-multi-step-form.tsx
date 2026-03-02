@@ -153,6 +153,10 @@ function CaseMultiStepFormInner() {
   const initialCategory = LEGAL_CATEGORIES.find((c) => c === rawCategory) ?? "IMMIGRATION";
   const initialUrgency = URGENCY_LEVELS.find((u) => u === rawUrgency) ?? "MEDIUM";
 
+  // Pre-fill title and description from URL params (e.g. from DIY document review)
+  const initialTitle = searchParams.get("title") ?? "";
+  const initialDescription = searchParams.get("description") ?? "";
+
   const [step, setStep] = useState(0);
   const [submitState, setSubmitState] = useState<"idle" | "submitting" | "success" | "error" | "attorney-blocked">("idle");
   const [createdCaseId, setCreatedCaseId] = useState<string | null>(null);
@@ -173,8 +177,8 @@ function CaseMultiStepFormInner() {
       urgency: initialUrgency,
       stateCode: "",
       zipCode: "",
-      description: "",
-      title: "",
+      description: initialDescription,
+      title: initialTitle,
       contactPhone: "",
       contactEmail: "",
     },

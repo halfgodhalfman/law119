@@ -38,15 +38,39 @@ export const DEV_ACTORS: DevActorSeed[] = [
 ];
 
 export function isDevAuthSwitchEnabled() {
-  // Only allow dev auth switch in local development:
-  // 1. Must be non-production NODE_ENV
-  // 2. Must NOT be running on Vercel (covers preview/staging deployments)
-  // 3. Must have explicit opt-in via DEV_AUTH_ENABLED=true
-  // This prevents auth bypass on any Vercel preview/staging deployment.
+  // Security: Only allow dev auth switch in strictly local development.
+  // Guards (all must pass):
+  // 1. Must NOT be production NODE_ENV
+  // 2. Must NOT be running on Vercel at all (covers preview/staging/dev)
+  // 3. Must NOT be Railway, Render, Fly.io, or other cloud environments
+  // 4. Must have explicit opt-in via DEV_AUTH_ENABLED=true
   if (process.env.NODE_ENV === "production") return false;
   if (process.env.VERCEL === "1") return false;
-  if (process.env.VERCEL_ENV) return false; // covers "preview" and "development" on Vercel
+  if (process.env.VERCEL_ENV) return false; // "production" | "preview" | "development"
+  if (process.env.RAILWAY_ENVIRONMENT) return false; // Railway.app
+  if (process.env.RENDER) return false;              // Render.com
+  if (process.env.FLY_APP_NAME) return false;        // Fly.io
+  if (process.env.K_SERVICE) return false;           // Google Cloud Run
+  if (process.env.AWS_LAMBDA_FUNCTION_NAME) return false; // AWS Lambda
+  if (process.env.DYNO) return false;                // Heroku
   return process.env.DEV_AUTH_ENABLED === "true";
+}
+
+/**
+ * 安全：校验当前请求是否来自允许的本地 IP（127.0.0.1 / ::1）
+ * 在 isDevAuthSwitchEnabled() = true 时额外验证
+ */
+export function isLocalOriginRequest(request: Request): boolean {
+  // In Next.js App Router, the real client IP comes from headers set by
+  // the runtime. In local dev with `next dev`, these will not be set,
+  // which means we're definitely local. On any cloud platform, at least
+  // one of the forwarded headers will be set.
+  const forwarded = request.headers.get("x-forwarded-for");
+  const realIp = request.headers.get("x-real-ip");
+  // If either forwarding header is present, request passed through a proxy/CDN
+  // → not a direct local request
+  if (forwarded || realIp) return false;
+  return true;
 }
 
 export function getDevActorSeed(key: string | null | undefined) {

@@ -5,6 +5,7 @@ import { requireAuthContext } from "@/lib/auth-context";
 import { prisma } from "@/lib/prisma";
 import { logAdminAction } from "@/lib/admin-action-log";
 import { createManyUserNotifications } from "@/lib/user-notifications";
+import { createTransfer } from "@/lib/stripe";
 
 const actionSchema = z.object({
   action: z.enum([
@@ -92,7 +93,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ pay
 
     const order = await prisma.paymentOrder.findUnique({
       where: { id: paymentOrderId },
-      include: { milestones: true },
+      include: {
+        milestones: true,
+        attorney: { select: { stripeAccountId: true, stripePayoutsEnabled: true } },
+      },
     });
     if (!order) return NextResponse.json({ error: "Payment order not found." }, { status: 404 });
 
@@ -161,6 +165,44 @@ export async function POST(request: Request, { params }: { params: Promise<{ pay
         updates.status = amountHeld > 0 ? "PARTIALLY_RELEASED" : "RELEASED";
         eventType = "MILESTONE_RELEASED";
         eventAmount = Number(ms.amount).toFixed(2);
+
+        // ── Stripe Transfer：里程碑款项释放给律师 Connect 子账户 ───────────────
+        // 净额 = 里程碑金额 × (1 - 平台服务费率)
+        // 仅在 Stripe 已配置且律师有 Connect 账户时执行
+        if (process.env.STRIPE_SECRET_KEY && order.attorney?.stripeAccountId && order.attorney?.stripePayoutsEnabled) {
+          const feeRate = order.platformServiceFeeRate
+            ? Number(order.platformServiceFeeRate)
+            : Number(process.env.STRIPE_PLATFORM_FEE_RATE ?? "0.05");
+          const milestoneNet = Number(ms.amount) * (1 - feeRate);
+          // Transfer 在事务外异步执行（避免 Stripe 延迟拖慢事务），捕获错误不中断流程
+          setImmediate(() => {
+            createTransfer(milestoneNet.toFixed(2), order.attorney!.stripeAccountId!, {
+              paymentOrderId: order.id,
+              milestoneId,
+              platform: "law119",
+            }).then((transfer) => {
+              // 将 Transfer ID 写回 PaymentOrder（幂等 updateMany）
+              prisma.paymentOrder.updateMany({
+                where: { id: order.id, stripeTransferId: null },
+                data: { stripeTransferId: transfer.id },
+              }).catch(() => null);
+            }).catch((e) => {
+              console.error(`[release_milestone] Stripe Transfer failed for order ${order.id}, milestone ${milestoneId}:`, e);
+              // Transfer 失败记录事件，供运营人员手动处理
+              prisma.paymentEvent.create({
+                data: {
+                  paymentOrderId: order.id,
+                  milestoneId,
+                  actorUserId: auth.authUserId,
+                  type: "PAYMENT_FAILED",
+                  amount: milestoneNet.toFixed(2),
+                  note: `Stripe Transfer failed — manual payout required. Error: ${e instanceof Error ? e.message : String(e)}`,
+                  metadata: { action: "stripe_transfer_failed", milestoneId },
+                },
+              }).catch(() => null);
+            });
+          });
+        } // end if (STRIPE_SECRET_KEY)
       } else if (action === "approve_milestone_release") {
         if (!isAdmin) throw new Error("ADMIN_ONLY");
         if (!milestoneId) throw new Error("MILESTONE_REQUIRED");
